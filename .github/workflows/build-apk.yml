@@ -1,0 +1,65 @@
+name: Build APK (Atelier Sprites)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.24.3
+
+jobs:
+  build-apk:
+    name: Build debug APK
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform scaffolding
+        run: |
+          cd atelier_sprites
+          flutter create --org wildzimut --platforms android --project-name atelier_sprites .
+          git checkout -- pubspec.yaml README.md 2>/dev/null || true
+          rm -f test/widget_test.dart
+
+      - name: Install dependencies
+        run: |
+          cd atelier_sprites
+          flutter pub get
+
+      - name: Run tests
+        run: |
+          cd atelier_sprites
+          flutter test
+
+      - name: Build debug APK
+        run: |
+          cd atelier_sprites
+          flutter build apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atelier-sprites-debug-apk
+          path: atelier_sprites/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
