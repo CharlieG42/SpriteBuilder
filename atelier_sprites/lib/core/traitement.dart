@@ -40,13 +40,26 @@ ResultatCases traiterCases(DemandeCases d) {
     rowY: d.rowY,
   );
 
+  // Échelle commune à toutes les cases : une pose ne doit pas être réduite
+  // davantage que sa voisine (sinon le personnage « pulse » en animation).
+  final ratio = d.case512
+      ? ratioCommun(planche, grille, d.indices, coteCarre)
+      : 1.0;
+
   final vignettes = <String, Uint8List>{};
   for (final i in d.indices) {
     final col = i % grille.cols;
     final row = i ~/ grille.cols;
     var cas = extraireCase(planche, grille, col, row);
     if (d.case512) {
-      cas = normaliserCarre(cas, 512);
+      cas = normaliserCarre(
+        cas,
+        coteCarre,
+        ratio: ratio,
+        ancrage: d.ancrageSol ? Ancrage.sol : Ancrage.centre,
+        margeSol: d.margeSol,
+      );
+      if (d.tailleVignette > 0) cas = reduire(cas, d.tailleVignette);
     } else if (d.tailleVignette > 0) {
       cas = reduire(cas, d.tailleVignette);
     }
@@ -78,6 +91,8 @@ DemandeCases construireDemande(
     interieurs: options.interieurs,
     aireMinInterieur: options.aireMinInterieur,
     case512: options.case512,
+    ancrageSol: options.ancrageSol,
+    margeSol: options.margeSol,
     tailleVignette: tailleVignette,
   );
 }

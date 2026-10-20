@@ -117,25 +117,102 @@ img.Image extraireCase(img.Image src, Grille g, int col, int row) {
   return img.copyCrop(src, x: x0, y: y0, width: x1 - x0, height: y1 - y0);
 }
 
+/// Côté des cases exportées (convention des planches 4×2).
+const int coteCarre = 512;
+
+/// Placement du sprite dans le carré normalisé.
+enum Ancrage {
+  /// La case est centrée (comportement historique).
+  centre,
+
+  /// Le bas du contenu opaque est posé sur une ligne de sol commune ; la
+  /// position horizontale de la case est conservée.
+  sol,
+}
+
+/// Rectangle `[x0, x1) × [y0, y1)` du contenu dont l'alpha dépasse
+/// [seuilAlpha], ou `null` si la case est vide.
+({int x0, int y0, int x1, int y1})? boiteContenu(img.Image c, {int seuilAlpha = 16}) {
+  var x0 = c.width;
+  var y0 = c.height;
+  var x1 = -1;
+  var y1 = -1;
+  final avecAlpha = c.numChannels >= 4;
+  for (var y = 0; y < c.height; y++) {
+    for (var x = 0; x < c.width; x++) {
+      final a = avecAlpha ? c.getPixel(x, y).a.toInt() : 255;
+      if (a > seuilAlpha) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return null;
+  return (x0: x0, y0: y0, x1: x1 + 1, y1: y1 + 1);
+}
+
+/// Échelle commune (≤ 1) pour faire tenir toutes les cases [indices] dans un
+/// carré [cote] : calculée sur la plus grande case, appliquée à toutes.
+double ratioCommun(img.Image src, Grille g, List<int> indices, int cote) {
+  var maxCote = 1.0;
+  for (final i in indices) {
+    final col = i % g.cols;
+    final row = i ~/ g.cols;
+    if (row >= g.rows) continue;
+    final w = (g.colX[col + 1] - g.colX[col]) * src.width;
+    final h = (g.rowY[row + 1] - g.rowY[row]) * src.height;
+    maxCote = math.max(maxCote, math.max(w, h));
+  }
+  return math.min(1.0, cote / maxCote);
+}
+
 /// Recadre la case dans un carré [cote] (fond transparent), sans jamais
 /// agrandir le sprite. Les planches 4×2 sortent en cases de 512 px.
-img.Image normaliserCarre(img.Image cas, int cote) {
+///
+/// [ratio] impose l'échelle (sinon calculée sur la case seule). Avec
+/// [Ancrage.sol], le bas du contenu est posé à [margeSol] × [cote] du bas.
+img.Image normaliserCarre(
+  img.Image cas,
+  int cote, {
+  double? ratio,
+  Ancrage ancrage = Ancrage.centre,
+  double margeSol = 0.06,
+}) {
   var c = cas;
-  if (c.width > cote || c.height > cote) {
-    final ratio = cote / math.max(c.width, c.height);
+  final r = ratio ?? (c.width > cote || c.height > cote ? cote / math.max(c.width, c.height) : 1.0);
+  if (r < 1.0) {
     c = img.copyResize(
       c,
-      width: math.max(1, (c.width * ratio).round()),
-      height: math.max(1, (c.height * ratio).round()),
+      width: math.min(cote, math.max(1, (c.width * r).round())),
+      height: math.min(cote, math.max(1, (c.height * r).round())),
+      interpolation: img.Interpolation.linear,
     );
   }
+  if (c.numChannels < 4) c = c.convert(numChannels: 4);
+  final sortie = img.Image(width: cote, height: cote, numChannels: 4);
+  final dx = (cote - c.width) ~/ 2;
+
+  if (ancrage == Ancrage.sol) {
+    final boite = boiteContenu(c);
+    if (boite != null) {
+      // On ne garde que les lignes utiles : le haut ne déborde jamais.
+      final bande = img.copyCrop(c, x: 0, y: boite.y0, width: c.width, height: boite.y1 - boite.y0);
+      final sol = cote - (margeSol.clamp(0.0, 0.3) * cote).round();
+      final dy = math.max(0, sol - bande.height);
+      img.compositeImage(sortie, bande, dstX: dx, dstY: dy, blend: img.BlendMode.direct);
+      return sortie;
+    }
+  }
+
   if (c.width == cote && c.height == cote) return c;
-  final sortie = img.Image(width: cote, height: cote);
   img.compositeImage(
     sortie,
     c,
-    dstX: (cote - c.width) ~/ 2,
+    dstX: dx,
     dstY: (cote - c.height) ~/ 2,
+    blend: img.BlendMode.direct,
   );
   return sortie;
 }
