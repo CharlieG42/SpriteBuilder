@@ -113,6 +113,34 @@ void main() {
       expect(im.getPixel(10, 16).a.toInt(), 255);
       expect(im.getPixel(48, 16).a.toInt(), 255);
     });
+
+    test('poche de fond entre les membres retirée selon l’aire minimale', () {
+      final im = img.Image(width: 48, height: 48, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      // torse/bras : deux bandes verticales avec une poche de fond enfermée
+      img.fillRect(im, x1: 10, y1: 6, x2: 16, y2: 42, color: img.ColorRgb8(30, 30, 200));
+      img.fillRect(im, x1: 30, y1: 6, x2: 36, y2: 42, color: img.ColorRgb8(30, 30, 200));
+      img.fillRect(im, x1: 8, y1: 4, x2: 38, y2: 6, color: img.ColorRgb8(30, 30, 200));
+      img.fillRect(im, x1: 8, y1: 42, x2: 38, y2: 44, color: img.ColorRgb8(30, 30, 200));
+
+      detourer(im, tolerance: 30, douceur: 1.0, decontaminer: true);
+
+      expect(im.getPixel(23, 23).a.toInt(), 0, reason: 'poche entre les membres retirée');
+      expect(im.getPixel(13, 23).a.toInt(), 255, reason: 'bras conservé');
+    });
+
+    test('petite poche sous l’aire minimale conservée, intérieurs désactivables', () {
+      final im = img.Image(width: 32, height: 32, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 8, y1: 8, x2: 23, y2: 23, color: img.ColorRgb8(180, 30, 30));
+      img.fillRect(im, x1: 15, y1: 15, x2: 16, y2: 16, color: img.ColorRgb8(255, 255, 255));
+
+      detourer(im, tolerance: 30, douceur: 1.0, decontaminer: true);
+      expect(im.getPixel(15, 15).a.toInt(), 255, reason: 'poche < aire minimale conservée');
+
+      detourer(im, tolerance: 30, douceur: 1.0, decontaminer: true, interieurs: false);
+      expect(im.getPixel(15, 15).a.toInt(), 255, reason: 'intérieurs désactivés : poche conservée');
+    });
   });
 
   group('découpe', () {

@@ -2,9 +2,10 @@
 /// alpha doux et décontamination du halo.
 ///
 /// Portage du cœur de `detoure_planche.py` : le fond est estimé depuis les
-/// quatre coins ; seuls les pixels **connectés aux bords** sont retirés, donc
-/// les zones claires enfermées dans un sprite (yeux, neige, reflets) sont
-/// conservées.
+/// quatre coins ; les pixels **connectés aux bords** sont retirés. Les poches
+/// de fond enfermées dans le sprite (entre les membres) sont retirées si
+/// [interieurs] est activé, en respectant [aireMinInterieur] pour préserver
+/// les petits détails (yeux, reflets).
 library;
 
 import 'dart:math' as math;
@@ -30,6 +31,8 @@ StatsDetourage detourer(
   required int tolerance,
   required double douceur,
   required bool decontaminer,
+  bool interieurs = true,
+  int aireMinInterieur = 24,
 }) {
   final w = src.width;
   final h = src.height;
@@ -96,9 +99,51 @@ StatsDetourage detourer(
     if (y < h - 1) essayer(i + w);
   }
 
+  // Poches de fond enfermées dans le sprite (entre les membres).
+  if (interieurs) {
+    final visites = Uint8List(w * h);
+    for (var i = 0; i < w * h; i++) {
+      if (masque[i] != 0 || visites[i] == 1) continue;
+      if (!estFond(i)) {
+        visites[i] = 1;
+        continue;
+      }
+      var pocheTete = 0;
+      var pocheQueue = 0;
+      file[pocheQueue++] = i;
+      visites[i] = 1;
+      while (pocheTete < pocheQueue) {
+        final j = file[pocheTete++];
+        final x = j % w;
+        final y = j ~/ w;
+        if (x > 0 && visites[j - 1] == 0 && masque[j - 1] == 0 && estFond(j - 1)) {
+          visites[j - 1] = 1;
+          file[pocheQueue++] = j - 1;
+        }
+        if (x < w - 1 && visites[j + 1] == 0 && masque[j + 1] == 0 && estFond(j + 1)) {
+          visites[j + 1] = 1;
+          file[pocheQueue++] = j + 1;
+        }
+        if (y > 0 && visites[j - w] == 0 && masque[j - w] == 0 && estFond(j - w)) {
+          visites[j - w] = 1;
+          file[pocheQueue++] = j - w;
+        }
+        if (y < h - 1 && visites[j + w] == 0 && masque[j + w] == 0 && estFond(j + w)) {
+          visites[j + w] = 1;
+          file[pocheQueue++] = j + w;
+        }
+      }
+      if (pocheQueue >= aireMinInterieur) {
+        for (var k = 0; k < pocheQueue; k++) {
+          masque[file[k]] = 2;
+        }
+      }
+    }
+  }
+
   var nbFond = 0;
   for (var i = 0; i < w * h; i++) {
-    if (masque[i] == 1) {
+    if (masque[i] != 0) {
       src.setPixelRgba(i % w, i ~/ w, 0, 0, 0, 0);
       nbFond++;
     }
@@ -113,11 +158,11 @@ StatsDetourage detourer(
   for (var y = 0; y < h; y++) {
     for (var x = 0; x < w; x++) {
       final i = y * w + x;
-      if (masque[i] == 1) continue;
-      final voisinFond = (x > 0 && masque[i - 1] == 1) ||
-          (x < w - 1 && masque[i + 1] == 1) ||
-          (y > 0 && masque[i - w] == 1) ||
-          (y < h - 1 && masque[i + w] == 1);
+      if (masque[i] != 0) continue;
+      final voisinFond = (x > 0 && masque[i - 1] != 0) ||
+          (x < w - 1 && masque[i + 1] != 0) ||
+          (y > 0 && masque[i - w] != 0) ||
+          (y < h - 1 && masque[i + w] != 0);
       if (!voisinFond) continue;
 
       final p = src.getPixel(x, y);

@@ -601,8 +601,33 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
               _vignettes = <String, Uint8List>{};
             }),
           ),
+          SwitchListTile(
+            title: const Text('Dérouter aussi les intérieurs'),
+            subtitle: const Text('Retire le fond enfermé entre les membres (bras, jambes) ; les petites zones claires (yeux, reflets) sont conservées.'),
+            value: _options.interieurs,
+            onChanged: (v) => setState(() {
+              _options.interieurs = v;
+              _apercuDetour = null;
+              _vignettes = <String, Uint8List>{};
+            }),
+          ),
+          if (_options.interieurs)
+            ListTile(
+              title: Text('Aire min. d’une poche : ${_options.aireMinInterieur} px'),
+              subtitle: Slider(
+                value: _options.aireMinInterieur.toDouble(),
+                min: 4,
+                max: 400,
+                divisions: 99,
+                label: '${_options.aireMinInterieur}',
+                onChanged: (v) => setState(() {
+                  _options.aireMinInterieur = v.round();
+                  _apercuDetour = null;
+                  _vignettes = <String, Uint8List>{};
+                }),
+              ),
+            ),
           const SizedBox(height: 8),
-          FilledButton.tonalIcon(
             onPressed: _octets == null ? null : _previsualiserDetourage,
             icon: const Icon(Icons.auto_fix_high),
             label: const Text('Prévisualiser le détourage'),
