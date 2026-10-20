@@ -628,6 +628,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
               ),
             ),
           const SizedBox(height: 8),
+          FilledButton.tonalIcon(
             onPressed: _octets == null ? null : _previsualiserDetourage,
             icon: const Icon(Icons.auto_fix_high),
             label: const Text('Prévisualiser le détourage'),
