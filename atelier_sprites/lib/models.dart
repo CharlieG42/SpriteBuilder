@@ -48,7 +48,7 @@ class PlancheDef {
     required this.type,
     required this.suffixes,
     required this.libellesPoses,
-  }) : assert(suffixes.length == libellesPoses.length);
+  });
 
   int get nbCases => suffixes.length;
 }

@@ -261,7 +261,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       );
     }
     if (nom == null) return;
-    setState(() => _renommages[index] = nom);
+    setState(() => _renommages[index] = nom as String);
   }
 
   // --------------------------------------------------------------------------------------------

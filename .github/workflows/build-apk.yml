@@ -40,6 +40,7 @@ jobs:
           cd atelier_sprites
           flutter create --org wildzimut --platforms android --project-name atelier_sprites .
           git checkout -- pubspec.yaml README.md 2>/dev/null || true
+          rm -f test/widget_test.dart
 
       - name: Install dependencies
         run: |

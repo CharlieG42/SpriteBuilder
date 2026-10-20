@@ -114,7 +114,7 @@ img.Image extraireCase(img.Image src, Grille g, int col, int row) {
   x1 = x1.clamp(x0 + 1, src.width);
   y0 = y0.clamp(0, src.height - 1);
   y1 = y1.clamp(y0 + 1, src.height);
-  return img.copyCrop(src, x0, y0, x1 - x0, y1 - y0);
+  return img.copyCrop(src, x: x0, y: y0, width: x1 - x0, height: y1 - y0);
 }
 
 /// Recadre la case dans un carré [cote] (fond transparent), sans jamais
@@ -130,8 +130,8 @@ img.Image normaliserCarre(img.Image cas, int cote) {
     );
   }
   if (c.width == cote && c.height == cote) return c;
-  final sortie = img.Image(cote, cote);
-  img.drawImage(
+  final sortie = img.Image.fromSize(width: cote, height: cote);
+  img.compositeImage(
     sortie,
     c,
     dstX: (cote - c.width) ~/ 2,

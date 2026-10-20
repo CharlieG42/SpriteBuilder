@@ -87,11 +87,11 @@ void main() {
 
   group('détourage', () {
     test('fond blanc supprimé, sprite conservé, zones enfermées gardées', () {
-      final im = img.Image(32, 32);
-      img.fill(im, img.ColorRgb8(255, 255, 255));
-      img.fillRect(im, 8, 8, 23, 23, img.ColorRgb8(180, 30, 30));
+      final im = img.Image.fromSize(width: 32, height: 32);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 8, y1: 8, x2: 23, y2: 23, color: img.ColorRgb8(180, 30, 30));
       // zone claire enfermée dans le sprite : doit être conservée
-      img.fillRect(im, 14, 14, 17, 17, img.ColorRgb8(250, 250, 250));
+      img.fillRect(im, x1: 14, y1: 14, x2: 17, y2: 17, color: img.ColorRgb8(250, 250, 250));
 
       final stats = detourer(im, tolerance: 30, douceur: 1.0, decontaminer: true);
 
@@ -102,10 +102,10 @@ void main() {
     });
 
     test('deux sprites séparés : le fond entre eux est retiré', () {
-      final im = img.Image(64, 32);
-      img.fill(im, img.ColorRgb8(255, 255, 255));
-      img.fillRect(im, 4, 8, 20, 24, img.ColorRgb8(30, 30, 200));
-      img.fillRect(im, 40, 8, 56, 24, img.ColorRgb8(30, 30, 200));
+      final im = img.Image.fromSize(width: 64, height: 32);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 4, y1: 8, x2: 20, y2: 24, color: img.ColorRgb8(30, 30, 200));
+      img.fillRect(im, x1: 40, y1: 8, x2: 56, y2: 24, color: img.ColorRgb8(30, 30, 200));
 
       detourer(im, tolerance: 30, douceur: 1.0, decontaminer: true);
 
@@ -117,8 +117,8 @@ void main() {
 
   group('découpe', () {
     test('extraction des cases d\'une grille 4×2', () {
-      final im = img.Image(40, 20);
-      img.fill(im, img.ColorRgb8(255, 255, 255));
+      final im = img.Image.fromSize(width: 40, height: 20);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
       final grille = Grille.uniforme(4, 2);
       final c00 = extraireCase(im, grille, 0, 0);
       final c31 = extraireCase(im, grille, 3, 1);
@@ -129,8 +129,8 @@ void main() {
     });
 
     test('détection automatique d\'une grille 4×2', () {
-      final im = img.Image(40, 20);
-      img.fill(im, img.ColorRgb8(255, 255, 255));
+      final im = img.Image.fromSize(width: 40, height: 20);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
       // quatre colonnes de contenu séparées par des gouttières
       for (var k = 0; k < 4; k++) {
         img.fillRect(im, k * 10 + 1, 1, k * 10 + 8, 18, img.ColorRgb8(200, 40, 40));
@@ -141,14 +141,14 @@ void main() {
     });
 
     test('normalisation en carré 512', () {
-      final im = img.Image(100, 60);
-      img.fill(im, img.ColorRgb8(200, 40, 40));
+      final im = img.Image.fromSize(width: 100, height: 60);
+      img.fill(im, color: img.ColorRgb8(200, 40, 40));
       final carre = normaliserCarre(im, 512);
       expect(carre.width, 512);
       expect(carre.height, 512);
       // le sprite ne doit pas être agrandi
-      final petit = img.Image(100, 60);
-      img.fill(petit, img.ColorRgb8(10, 10, 10));
+      final petit = img.Image.fromSize(width: 100, height: 60);
+      img.fill(petit, color: img.ColorRgb8(10, 10, 10));
       final carrePetit = normaliserCarre(petit, 512);
       expect(carrePetit.width, 512);
       expect(carrePetit.height, 512);
