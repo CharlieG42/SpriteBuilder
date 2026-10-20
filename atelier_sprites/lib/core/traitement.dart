@@ -27,6 +27,8 @@ ResultatCases traiterCases(DemandeCases d) {
       tolerance: d.tolerance,
       douceur: d.douceur,
       decontaminer: d.decontaminer,
+      interieurs: d.interieurs,
+      aireMinInterieur: d.aireMinInterieur,
     );
     pourcentageFond = stats.pourcentageFond;
   }
@@ -73,6 +75,8 @@ DemandeCases construireDemande(
     tolerance: options.tolerance,
     douceur: options.douceur,
     decontaminer: options.decontaminer,
+    interieurs: options.interieurs,
+    aireMinInterieur: options.aireMinInterieur,
     case512: options.case512,
     tailleVignette: tailleVignette,
   );

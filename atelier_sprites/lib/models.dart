@@ -66,6 +66,12 @@ class OptionsTraitement {
   /// Re-pousse la couleur du halo hors de la couleur du fond.
   bool decontaminer = true;
 
+  /// Déroute aussi les poches de fond enfermées dans le sprite (entre les membres).
+  bool interieurs = true;
+
+  /// Aire minimale (pixels) d'une poche intérieure pour être retirée.
+  int aireMinInterieur = 24;
+
   /// Recadre chaque case dans un carré de 512 px (transparent).
   bool case512 = true;
 }
@@ -93,6 +99,8 @@ class DemandeCases {
   final int tolerance;
   final double douceur;
   final bool decontaminer;
+  final bool interieurs;
+  final int aireMinInterieur;
   final bool case512;
 
   /// Si > 0, la case est réduite pour tenir dans ce carré (aperçus rapides).
@@ -109,6 +117,8 @@ class DemandeCases {
     required this.tolerance,
     required this.douceur,
     required this.decontaminer,
+    required this.interieurs,
+    required this.aireMinInterieur,
     required this.case512,
     this.tailleVignette = 0,
   });
