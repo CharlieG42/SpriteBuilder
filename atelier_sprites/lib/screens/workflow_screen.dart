@@ -1,6 +1,7 @@
 /// Workflow complet : importer → grille → détourage → nommage → export zip.
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -11,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/animations.dart';
 import '../core/decoupe.dart';
+import '../core/reglages_anim.dart';
 import '../core/traitement.dart';
 import '../data/catalog.dart';
 import '../export/atelier_export.dart';
@@ -360,8 +362,22 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     return images;
   }
 
-  void _ouvrirAnimations() {
+  /// Chemins de `<id>_anim.txt` : à côté du repos de face du personnage
+  /// (là où EntityView.gd le cherche), quelle que soit la planche exportée.
+  List<String> _cheminsReglages(PersonnageCatalogue perso) {
+    final repos = planchesPour(perso).first;
+    if (repos.type == TypePlanche.objets) return const <String>[];
+    return [
+      for (final c in cheminsPour(perso: perso, planche: repos, nomFichier: '${perso.id}.png'))
+        '${c.substring(0, c.length - 4)}_anim.txt',
+    ];
+  }
+
+  Future<void> _ouvrirAnimations() async {
     if (_octets == null) return;
+    final perso = _perso;
+    final reglages = perso == null ? ReglagesAnim() : await MagasinReglages.lire(perso.id);
+    if (!mounted) return;
     final inclus = _indicesInclus;
     if (inclus.isEmpty) {
       _message('Toutes les cases sont exclues.');
@@ -385,6 +401,10 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           margeSol: _options.margeSol,
           charger: _imagesAnimation,
           onAncrageChange: (v) => setState(() => _options.ancrageSol = v),
+          reglages: reglages,
+          onReglagesChange: (r) {
+            if (perso != null) MagasinReglages.ecrire(perso.id, r);
+          },
         ),
       ),
     );
@@ -412,6 +432,13 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           nomFichier: nom,
         )) {
           fichiers.add(FichierExport(chemin, png));
+        }
+      }
+      final reglages = await MagasinReglages.lire(_perso!.id);
+      if (!reglages.estDefaut) {
+        final json = Uint8List.fromList(utf8.encode(reglages.versJson()));
+        for (final chemin in _cheminsReglages(_perso!)) {
+          fichiers.add(FichierExport(chemin, json));
         }
       }
       final nomZip = _nomZip();
@@ -887,6 +914,22 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text('Zip : ${_nomZip()}'),
+                  FutureBuilder<ReglagesAnim>(
+                    future: MagasinReglages.lire(_perso!.id),
+                    builder: (context, snap) {
+                      final r = snap.data;
+                      if (r == null || r.estDefaut || _cheminsReglages(_perso!).isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Mouvement personnalisé : ${_perso!.id}_anim.txt ajouté au zip.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 8),
                   for (final index in inclus)
                     Padding(

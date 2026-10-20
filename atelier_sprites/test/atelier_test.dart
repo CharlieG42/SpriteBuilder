@@ -2,6 +2,7 @@ import 'package:atelier_sprites/core/animations.dart';
 import 'package:atelier_sprites/core/decoupe.dart';
 import 'package:atelier_sprites/core/detourage.dart';
 import 'package:atelier_sprites/core/gif.dart';
+import 'package:atelier_sprites/core/reglages_anim.dart';
 import 'package:atelier_sprites/core/traitement.dart';
 import 'package:atelier_sprites/data/catalog.dart';
 import 'package:atelier_sprites/export/atelier_export.dart';
@@ -278,6 +279,41 @@ void main() {
       expect(String.fromCharCodes(gif.sublist(0, 3)), 'GIF');
       final relu = img.decodeGif(gif)!;
       expect(relu.numFrames, 3);
+    });
+  });
+
+  group('mouvement procédural (EntityView.gd V35)', () {
+    test('défauts : JSON vide, aucune personnalisation', () {
+      final r = ReglagesAnim();
+      expect(r.estDefaut, isTrue);
+      expect(r.versJson(), '{}');
+      expect(r['rebond_marche'], 9);
+    });
+
+    test('JSON : seules les clés modifiées, bornes appliquées à la relecture', () {
+      final r = ReglagesAnim().avec('rebond_marche', 4).avec('elan_attaque', 40);
+      expect(r.estDefaut, isFalse);
+      expect(r.versJson(), contains('"rebond_marche": 4'));
+      expect(r.versJson(), isNot(contains('respiration')));
+      final relu = ReglagesAnim.depuisJson({'respiration': 5, 'inconnu': 1, 'saut_sort': 20});
+      expect(relu['respiration'], 0.08);
+      expect(relu['saut_sort'], 20);
+    });
+
+    test('pose : marche qui saute, fente vers l\'avant, repos immobile horizontalement', () {
+      final r = ReglagesAnim();
+      // marche : à t = π/26, |sin(13 t)| = 1 → saut maximal
+      final marche = poseProcedurale(r, FamilleAnim.marche, 3.14159265 / 26);
+      expect(marche.dy, lessThan(-8));
+      expect(marche.inclinaison, closeTo(0.10, 1e-9));
+      // attaque : à 0,14 s la fente est au plus loin, dans le sens du regard
+      final droite = poseProcedurale(r, FamilleAnim.attaque, 0.1399);
+      final gauche = poseProcedurale(r, FamilleAnim.attaque, 0.1399, sens: -1);
+      expect(droite.dx, closeTo(26, 0.5));
+      expect(gauche.dx, closeTo(-26, 0.5));
+      // sort : saut à 0,12 s
+      expect(poseProcedurale(r, FamilleAnim.sort, 0.12).dy, lessThan(-10));
+      expect(poseProcedurale(r, FamilleAnim.repos, 1.0).dx, 0);
     });
   });
 }

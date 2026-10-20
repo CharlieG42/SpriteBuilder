@@ -9,11 +9,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/animations.dart';
 import '../core/gif.dart';
+import '../core/reglages_anim.dart';
 import '../widgets/damier.dart';
 
 /// Charge les images normalisées (carré, clé = index de case) selon l'ancrage.
@@ -54,6 +56,10 @@ class AnimationScreen extends StatefulWidget {
   /// Appelé quand l'utilisateur change l'ancrage : le choix s'applique à l'export.
   final ValueChanged<bool> onAncrageChange;
 
+  /// Réglages du mouvement procédural de Zimut pour ce personnage.
+  final ReglagesAnim reglages;
+  final ValueChanged<ReglagesAnim> onReglagesChange;
+
   const AnimationScreen({
     super.key,
     required this.titre,
@@ -64,13 +70,15 @@ class AnimationScreen extends StatefulWidget {
     required this.margeSol,
     required this.charger,
     required this.onAncrageChange,
+    required this.reglages,
+    required this.onReglagesChange,
   });
 
   @override
   State<AnimationScreen> createState() => _AnimationScreenState();
 }
 
-class _AnimationScreenState extends State<AnimationScreen> {
+class _AnimationScreenState extends State<AnimationScreen> with SingleTickerProviderStateMixin {
   Map<int, MemoryImage> _images = <int, MemoryImage>{};
   Map<int, Uint8List> _octets = <int, Uint8List>{};
   bool _chargement = true;
@@ -86,6 +94,12 @@ class _AnimationScreenState extends State<AnimationScreen> {
   late bool _ancrageSol;
   _Fond _fond = _Fond.damier;
 
+  /// Simule le mouvement procédural du jeu (respiration, sauts, fente…).
+  bool _mouvement = true;
+  late ReglagesAnim _reglages;
+  late final Ticker _ticker;
+  final ValueNotifier<double> _horloge = ValueNotifier<double>(0);
+
   bool _lecture = true;
   int _pos = 0;
   Timer? _minuterie;
@@ -95,6 +109,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
   void initState() {
     super.initState();
     _ancrageSol = widget.ancrageSol;
+    _reglages = widget.reglages;
+    _ticker = createTicker((e) => _horloge.value = e.inMicroseconds / 1e6)..start();
     _appliquerAnimation(0);
     _charger();
   }
@@ -102,6 +118,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
   @override
   void dispose() {
     _minuterie?.cancel();
+    _ticker.dispose();
+    _horloge.dispose();
     super.dispose();
   }
 
@@ -355,6 +373,12 @@ class _AnimationScreenState extends State<AnimationScreen> {
           runSpacing: 4,
           children: [
             FilterChip(
+              label: const Text('Mouvement du jeu'),
+              tooltip: 'Respiration, sauts de marche, fente d\'attaque, saut de sort (EntityView.gd)',
+              selected: _mouvement,
+              onSelected: (v) => setState(() => _mouvement = v),
+            ),
+            FilterChip(
               label: const Text('Aller-retour'),
               selected: _allerRetour,
               onSelected: (v) => setState(() {
@@ -398,6 +422,7 @@ class _AnimationScreenState extends State<AnimationScreen> {
           showSelectedIcon: false,
           onSelectionChanged: (s) => setState(() => _fond = s.first),
         ),
+        if (_mouvement) _reglagesMouvement(theme),
         const SizedBox(height: 12),
         Text('Images de l\'animation', style: theme.textTheme.titleSmall),
         Text(
@@ -456,8 +481,16 @@ class _AnimationScreenState extends State<AnimationScreen> {
                         ? const Damier()
                         : ColoredBox(color: Color(0xFF000000 | _fond.rgb)),
                   ),
-                  if (precedente != null && precedente != courante) sprite(precedente, opacite: 0.3),
-                  if (courante != null) sprite(courante),
+                  Positioned.fill(
+                    child: _mouvementJeu(
+                      Stack(
+                        children: [
+                          if (precedente != null && precedente != courante) sprite(precedente, opacite: 0.3),
+                          if (courante != null) sprite(courante),
+                        ],
+                      ),
+                    ),
+                  ),
                   if (_ligneSol)
                     Positioned.fill(
                       child: CustomPaint(
@@ -472,6 +505,86 @@ class _AnimationScreenState extends State<AnimationScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// Applique le mouvement procédural du jeu (mêmes formules que EntityView.gd).
+  Widget _mouvementJeu(Widget enfant) {
+    if (!_mouvement) return enfant;
+    return LayoutBuilder(
+      builder: (context, c) {
+        // Un sprite de jeu fait ~104 px de haut pour un carré d'environ 120 px.
+        final k = c.maxWidth / 120;
+        return ValueListenableBuilder<double>(
+          valueListenable: _horloge,
+          child: enfant,
+          builder: (context, t, enfant) {
+            final p = poseProcedurale(_reglages, _def.famille, t, sens: _miroir ? -1 : 1);
+            final m = Matrix4.identity()
+              ..translate(p.dx * k, p.dy * k)
+              ..rotateZ(p.rotation)
+              ..multiply(Matrix4.skewX(-p.inclinaison))
+              ..scale(p.sx, p.sy);
+            return Transform(alignment: Alignment.center, transform: m, child: enfant);
+          },
+        );
+      },
+    );
+  }
+
+  void _majReglage(String cle, double v) {
+    setState(() => _reglages = _reglages.avec(cle, v));
+    widget.onReglagesChange(_reglages);
+  }
+
+  Widget _reglagesMouvement(ThemeData theme) {
+    final famille = _def.famille ?? FamilleAnim.repos;
+    final params = paramsAnim.where((p) => p.famille == famille).toList();
+    if (params.isEmpty) return const SizedBox.shrink();
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: ExpansionTile(
+        title: Text('Mouvement dans Zimut · ${libelleFamille(famille)}'),
+        subtitle: Text(
+          _reglages.estDefaut ? 'Valeurs du jeu par défaut' : 'Réglages personnalisés (exportés dans le zip)',
+          style: theme.textTheme.bodySmall,
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        children: [
+          for (final p in params) ...[
+            Row(
+              children: [
+                Expanded(child: Text(p.libelle)),
+                Text(
+                  '${_reglages[p.cle].toStringAsFixed(p.decimales)}${p.unite.isEmpty ? '' : ' ${p.unite}'}',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+            Slider(
+              value: _reglages[p.cle].clamp(0.0, p.max).toDouble(),
+              min: 0,
+              max: p.max,
+              onChanged: (v) => _majReglage(p.cle, v),
+            ),
+          ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () {
+                var r = _reglages;
+                for (final p in params) {
+                  r = r.avec(p.cle, p.defaut);
+                }
+                setState(() => _reglages = r);
+                widget.onReglagesChange(r);
+              },
+              icon: const Icon(Icons.restart_alt),
+              label: const Text('Valeurs du jeu'),
+            ),
+          ),
+        ],
       ),
     );
   }
