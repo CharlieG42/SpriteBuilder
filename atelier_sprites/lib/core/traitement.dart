@@ -16,9 +16,11 @@ ResultatCases traiterCases(DemandeCases d) {
   if (source == null) {
     throw const FormatException('Image illisible.');
   }
-
   var pourcentageFond = 0;
   var planche = source;
+  if (planche.numChannels < 4) {
+    planche = planche.convert(numChannels: 4);
+  }
   if (d.detourer) {
     final stats = detourer(
       planche,
