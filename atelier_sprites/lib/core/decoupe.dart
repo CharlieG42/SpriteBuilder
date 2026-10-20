@@ -130,7 +130,7 @@ img.Image normaliserCarre(img.Image cas, int cote) {
     );
   }
   if (c.width == cote && c.height == cote) return c;
-  final sortie = img.Image.fromSize(width: cote, height: cote);
+  final sortie = img.Image(width: cote, height: cote);
   img.compositeImage(
     sortie,
     c,

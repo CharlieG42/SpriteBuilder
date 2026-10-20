@@ -50,6 +50,9 @@ Future<File> ecrireZip(List<FichierExport> fichiers, String nomZip) async {
     archive.addFile(ArchiveFile(f.chemin, f.octets.length, f.octets));
   }
   final octets = ZipEncoder().encode(archive);
+  if (octets == null) {
+    throw StateError('Echec de l encodage du zip.');
+  }
   final dossier = await getTemporaryDirectory();
   final fichier = File('${dossier.path}/$nomZip');
   await fichier.writeAsBytes(octets, flush: true);
