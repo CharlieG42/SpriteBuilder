@@ -1,0 +1,27 @@
+name: atelier_sprites
+description: >-
+  Atelier Sprites — importe une planche de sprites générée par IA, détour le fond,
+  découpe les cases, nomme les poses selon la convention EntityView.gd et exporte
+  un zip prêt à décompresser à la racine du dépôt Zimut.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image: ^1.3.0
+  file_picker: ^8.1.2
+  path_provider: ^2.1.4
+  share_plus: ^10.0.2
+  archive: ^3.6.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
