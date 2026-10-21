@@ -19,6 +19,22 @@ flutter run
 
 ## Pipeline
 
+0. **Personnage (plusieurs planches)** — on importe d'un coup une ou plusieurs planches d'un
+   même personnage, **chacune avec sa propre grille** (4×2, 3×3, demi-planches 2×2…). Le
+   personnage et le type de chaque planche sont présélectionnés depuis les noms de fichiers ;
+   une seconde moitié 2×2 reprend automatiquement à la case 5. L'écran Personnage liste les
+   planches (grille, cases exclues, état *à attribuer / à vérifier / prête*) et vérifie avant
+   export :
+   - **doublons** : deux cases qui produiraient le même fichier (bloquant) ;
+   - **poses manquantes** dans une planche (ex. `assassin_back_cast_2.png`) ;
+   - planches sans type (bloquant).
+   L'export produit **un seul zip** `zimut_sprites_<id>.zip` avec une **échelle commune** à
+   toutes les planches (la plus grande case fixe la réduction) et la même ligne de sol : le
+   personnage garde la même taille entre repos, attaques, face et dos. L'aperçu des
+   animations combine toutes les planches (« Face · Repos », « Dos · Attaque »…).
+   Touche une planche pour ouvrir son parcours en 4 étapes ci-dessous ; le détourage et les
+   options d'export sont communs au personnage.
+
 1. **Planche & grille** — importe l'image (fond blanc ou gris uni, jamais vert ou rose).
    Le nombre de colonnes/lignes est **détecté automatiquement** (projection des pixels de
    contenu) ; les séparateurs se **déplacent au doigt** quand deux poses se touchent
@@ -80,6 +96,7 @@ flutter run
 lib/
 ├── main.dart                    point d'entrée
 ├── models.dart                  Vue, PlancheDef, PersonnageCatalogue, options, demandes isolate
+├── projet.dart                  projet personnage : planches, nommage, échelle commune, contrôles
 ├── data/catalog.dart            nations, familiers, mécanismes, planches, noms de fichiers, présélection
 ├── core/
 │   ├── detourage.dart           flood fill bord, alpha doux, décontamination
@@ -92,7 +109,7 @@ lib/
 ├── widgets/
 │   ├── apercu_grille.dart       aperçu interactif, séparateurs déplaçables au doigt
 │   └── damier.dart              fond damier (transparence visible)
-└── screens/                     accueil, workflow en 4 étapes, aperçu des animations
+└── screens/                     accueil, personnage (multi-planches), workflow en 4 étapes, aperçu des animations
 test/atelier_test.dart           noms de fichiers, catalogue, détourage, découpe, ancrage, animations, GIF
 ```
 

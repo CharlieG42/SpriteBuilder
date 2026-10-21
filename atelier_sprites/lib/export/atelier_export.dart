@@ -43,6 +43,18 @@ List<String> cheminsPour({
   return chemins;
 }
 
+/// Chemins de `<id>_anim.txt` (réglages du mouvement, Zimut V35) : à côté du
+/// repos de face du personnage, là où `EntityView.gd` le cherche, quelle que
+/// soit la planche exportée. Aucun pour les objets fixes.
+List<String> cheminsReglages(PersonnageCatalogue perso) {
+  final repos = planchesPour(perso).first;
+  if (repos.type == TypePlanche.objets) return const <String>[];
+  return [
+    for (final c in cheminsPour(perso: perso, planche: repos, nomFichier: '${perso.id}.png'))
+      '${c.substring(0, c.length - 4)}_anim.txt',
+  ];
+}
+
 /// Écrit le zip sur le stockage temporaire de l'appareil et retourne le fichier.
 Future<File> ecrireZip(List<FichierExport> fichiers, String nomZip) async {
   final archive = Archive();

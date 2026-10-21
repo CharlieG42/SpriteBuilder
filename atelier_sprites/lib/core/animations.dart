@@ -92,3 +92,29 @@ List<int> sequenceLecture(List<int> cases, {required bool allerRetour}) {
     for (var i = cases.length - 2; i >= 1; i--) cases[i],
   ];
 }
+
+/// Animations d'un personnage à plusieurs planches : les cases d'une même vue
+/// (ex. « Face ») sont fusionnées puis regroupées par famille (« Face · Repos »,
+/// « Dos · Attaque »…). [groupes] associe un libellé de vue aux suffixes de ses
+/// cases (clés globales, uniques entre planches).
+List<AnimationDef> animationsProjet(Map<String, Map<int, String?>> groupes) {
+  final sortie = <AnimationDef>[];
+  final toutes = <int>[];
+  for (final g in groupes.entries) {
+    toutes.addAll(g.value.keys);
+    for (final a in animationsPour(g.value)) {
+      if (a.famille == null) continue;
+      sortie.add(AnimationDef(
+        libelle: '${g.key} · ${a.libelle}',
+        famille: a.famille,
+        cases: a.cases,
+        fps: a.fps,
+        allerRetour: a.allerRetour,
+      ));
+    }
+  }
+  if (sortie.isEmpty) {
+    sortie.add(AnimationDef(libelle: 'Toutes les cases', famille: null, cases: toutes, fps: 4));
+  }
+  return sortie;
+}
