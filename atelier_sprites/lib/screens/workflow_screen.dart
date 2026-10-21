@@ -1,6 +1,7 @@
 /// Workflow complet : importer → grille → détourage → nommage → export zip.
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -9,12 +10,16 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:share_plus/share_plus.dart';
 
+import '../core/animations.dart';
 import '../core/decoupe.dart';
+import '../core/reglages_anim.dart';
 import '../core/traitement.dart';
 import '../data/catalog.dart';
 import '../export/atelier_export.dart';
 import '../models.dart';
 import '../widgets/apercu_grille.dart';
+import '../widgets/damier.dart';
+import 'animation_screen.dart';
 
 class WorkflowScreen extends StatefulWidget {
   const WorkflowScreen({super.key});
@@ -41,6 +46,11 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   Map<String, Uint8List> _vignettes = <String, Uint8List>{};
   Uint8List? _apercuDetour;
   int _pourcentageFond = -1;
+
+  /// Cases normalisées pour l'aperçu des animations (clé = index de case),
+  /// calculées pour l'ancrage [_cacheAnimSol].
+  Map<int, Uint8List>? _cacheAnim;
+  bool? _cacheAnimSol;
 
   bool _occupe = false;
   int _etape = 0;
@@ -70,7 +80,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       _imageH = source.height;
       _exclues.clear();
       _renommages.clear();
-      _vignettes = <String, Uint8List>{};
+      _invaliderApercus();
       _apercuDetour = null;
       _pourcentageFond = -1;
       _premiereCase = 1;
@@ -91,10 +101,17 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     }
   }
 
+  /// Les aperçus (vignettes, animations) ne correspondent plus aux réglages.
+  void _invaliderApercus() {
+    _vignettes = <String, Uint8List>{};
+    _cacheAnim = null;
+    _cacheAnimSol = null;
+  }
+
   void _majGrille(Grille g) {
     setState(() {
       _grille = g;
-      _vignettes = <String, Uint8List>{};
+      _invaliderApercus();
       _exclues.clear();
       _renommages.clear();
       if (_planche?.type == TypePlanche.objets) {
@@ -106,7 +123,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   void _majDimensions(int cols, int rows) {
     setState(() {
       _grille = Grille.uniforme(cols, rows);
-      _vignettes = <String, Uint8List>{};
+      _invaliderApercus();
       _exclues.clear();
       _renommages.clear();
       if (_planche?.type == TypePlanche.objets) {
@@ -149,6 +166,16 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     final position = _premiereCase - 1 + rang;
     if (position < 0 || position >= pl.libellesPoses.length) return 'case ${index + 1}';
     return pl.libellesPoses[position];
+  }
+
+  /// Suffixe de pose de la case (ordre des cases incluses), `null` si inconnu.
+  String? _suffixeCase(int index) {
+    final pl = _planche;
+    if (pl == null || pl.type == TypePlanche.objets) return null;
+    final rang = _indicesInclus.indexOf(index);
+    final position = _premiereCase - 1 + rang;
+    if (rang < 0 || position < 0 || position >= pl.suffixes.length) return null;
+    return pl.suffixes[position];
   }
 
   String _nomFinal(int index) {
@@ -268,15 +295,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   // Traitement (isolates)
   // --------------------------------------------------------------------------------------------
 
-  OptionsTraitement get _optionsApercu {
-    final o = OptionsTraitement();
-    o.detourer = _options.detourer;
-    o.tolerance = _options.tolerance;
-    o.douceur = _options.douceur;
-    o.decontaminer = _options.decontaminer;
-    o.case512 = false;
-    return o;
-  }
+  OptionsTraitement get _optionsApercu => _options.copie()..case512 = false;
 
   Future<void> _previsualiserDetourage() async {
     if (_octets == null) return;
@@ -327,6 +346,70 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     }
   }
 
+  Future<Map<int, Uint8List>> _imagesAnimation(bool ancrageSol) async {
+    if (_cacheAnim != null && _cacheAnimSol == ancrageSol) return _cacheAnim!;
+    final options = _options.copie()
+      ..case512 = true
+      ..ancrageSol = ancrageSol;
+    final indices = <int>[for (var i = 0; i < _grille.nbCases; i++) i];
+    final demande = construireDemande(_octets!, _grille, options, indices, tailleVignette: 320);
+    final resultat = await compute(traiterCases, demande);
+    final images = <int, Uint8List>{
+      for (final e in resultat.vignettes.entries) int.parse(e.key): e.value,
+    };
+    _cacheAnim = images;
+    _cacheAnimSol = ancrageSol;
+    return images;
+  }
+
+  /// Chemins de `<id>_anim.txt` : à côté du repos de face du personnage
+  /// (là où EntityView.gd le cherche), quelle que soit la planche exportée.
+  List<String> _cheminsReglages(PersonnageCatalogue perso) {
+    final repos = planchesPour(perso).first;
+    if (repos.type == TypePlanche.objets) return const <String>[];
+    return [
+      for (final c in cheminsPour(perso: perso, planche: repos, nomFichier: '${perso.id}.png'))
+        '${c.substring(0, c.length - 4)}_anim.txt',
+    ];
+  }
+
+  Future<void> _ouvrirAnimations() async {
+    if (_octets == null) return;
+    final perso = _perso;
+    final reglages = perso == null ? ReglagesAnim() : await MagasinReglages.lire(perso.id);
+    if (!mounted) return;
+    final inclus = _indicesInclus;
+    if (inclus.isEmpty) {
+      _message('Toutes les cases sont exclues.');
+      return;
+    }
+    final suffixes = <int, String?>{for (final i in inclus) i: _suffixeCase(i)};
+    final noms = <int, String>{
+      for (final i in inclus) i: _planche == null || _perso == null ? 'case ${i + 1}' : _nomFinal(i),
+    };
+    final base = _perso == null
+        ? 'planche'
+        : (_planche?.vue == Vue.dos ? '${_perso!.id}_back' : _perso!.id);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AnimationScreen(
+          titre: _perso == null ? 'Aperçu des animations' : '${_perso!.libelle} — animations',
+          nomBase: base,
+          animations: animationsPour(suffixes),
+          nomsCases: noms,
+          ancrageSol: _options.ancrageSol,
+          margeSol: _options.margeSol,
+          charger: _imagesAnimation,
+          onAncrageChange: (v) => setState(() => _options.ancrageSol = v),
+          reglages: reglages,
+          onReglagesChange: (r) {
+            if (perso != null) MagasinReglages.ecrire(perso.id, r);
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _exporter() async {
     if (_octets == null || _perso == null || _planche == null) return;
     final inclus = _indicesInclus;
@@ -349,6 +432,13 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           nomFichier: nom,
         )) {
           fichiers.add(FichierExport(chemin, png));
+        }
+      }
+      final reglages = await MagasinReglages.lire(_perso!.id);
+      if (!reglages.estDefaut) {
+        final json = Uint8List.fromList(utf8.encode(reglages.versJson()));
+        for (final chemin in _cheminsReglages(_perso!)) {
+          fichiers.add(FichierExport(chemin, json));
         }
       }
       final nomZip = _nomZip();
@@ -557,7 +647,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           onChanged: (v) => setState(() {
             _options.detourer = v;
             _apercuDetour = null;
-            _vignettes = <String, Uint8List>{};
+            _invaliderApercus();
           }),
         ),
         if (_options.detourer) ...[
@@ -572,7 +662,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
               onChanged: (v) => setState(() {
                 _options.tolerance = v.round();
                 _apercuDetour = null;
-                _vignettes = <String, Uint8List>{};
+                _invaliderApercus();
               }),
             ),
           ),
@@ -587,7 +677,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
               onChanged: (v) => setState(() {
                 _options.douceur = v;
                 _apercuDetour = null;
-                _vignettes = <String, Uint8List>{};
+                _invaliderApercus();
               }),
             ),
           ),
@@ -598,7 +688,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
             onChanged: (v) => setState(() {
               _options.decontaminer = v;
               _apercuDetour = null;
-              _vignettes = <String, Uint8List>{};
+              _invaliderApercus();
             }),
           ),
           SwitchListTile(
@@ -608,7 +698,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
             onChanged: (v) => setState(() {
               _options.interieurs = v;
               _apercuDetour = null;
-              _vignettes = <String, Uint8List>{};
+              _invaliderApercus();
             }),
           ),
           if (_options.interieurs)
@@ -623,7 +713,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
                 onChanged: (v) => setState(() {
                   _options.aireMinInterieur = v.round();
                   _apercuDetour = null;
-                  _vignettes = <String, Uint8List>{};
+                  _invaliderApercus();
                 }),
               ),
             ),
@@ -637,7 +727,13 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
             const SizedBox(height: 12),
             AspectRatio(
               aspectRatio: _imageW / _imageH,
-              child: Image.memory(_apercuDetour!, fit: BoxFit.contain, gaplessPlayback: true),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  const Damier(),
+                  Image.memory(_apercuDetour!, fit: BoxFit.contain, gaplessPlayback: true),
+                ],
+              ),
             ),
           ],
           if (_pourcentageFond >= 0) ...[
@@ -711,6 +807,12 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           icon: const Icon(Icons.grid_view),
           label: const Text('Régénérer les aperçus'),
         ),
+        const SizedBox(height: 8),
+        FilledButton.tonalIcon(
+          onPressed: _octets == null ? null : _ouvrirAnimations,
+          icon: const Icon(Icons.play_circle_outline),
+          label: const Text('Aperçu des animations'),
+        ),
         if (_vignettes.isEmpty && _octets != null)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
@@ -728,12 +830,20 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
                         ? const SizedBox(width: 48, height: 48)
                         : ClipRRect(
                             borderRadius: BorderRadius.circular(4),
-                            child: Image.memory(
-                              _vignettes[index.toString()]!,
+                            child: SizedBox(
                               width: 48,
                               height: 48,
-                              fit: BoxFit.contain,
-                              gaplessPlayback: true,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  const Damier(taille: 6),
+                                  Image.memory(
+                                    _vignettes[index.toString()]!,
+                                    fit: BoxFit.contain,
+                                    gaplessPlayback: true,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                     title: Text('Case ${index + 1} — ${_planche == null ? '' : _libellePose(index)}'),
@@ -777,6 +887,21 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           value: _options.case512,
           onChanged: (v) => setState(() => _options.case512 = v),
         ),
+        SwitchListTile(
+          title: const Text('Pieds alignés (ancrage au sol)'),
+          subtitle: const Text('Pose le bas de chaque sprite sur la même ligne du carré : '
+              'le personnage ne « saute » plus d\'une pose à l\'autre en jeu.'),
+          value: _options.ancrageSol,
+          onChanged: _options.case512 ? (v) => setState(() => _options.ancrageSol = v) : null,
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _octets == null ? null : _ouvrirAnimations,
+            icon: const Icon(Icons.play_circle_outline),
+            label: const Text('Vérifier les animations avant l\'export'),
+          ),
+        ),
         if (_perso != null && _planche != null) ...[
           Card(
             margin: const EdgeInsets.symmetric(vertical: 8),
@@ -789,6 +914,22 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text('Zip : ${_nomZip()}'),
+                  FutureBuilder<ReglagesAnim>(
+                    future: MagasinReglages.lire(_perso!.id),
+                    builder: (context, snap) {
+                      final r = snap.data;
+                      if (r == null || r.estDefaut || _cheminsReglages(_perso!).isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Mouvement personnalisé : ${_perso!.id}_anim.txt ajouté au zip.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 8),
                   for (final index in inclus)
                     Padding(

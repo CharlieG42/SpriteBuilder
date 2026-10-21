@@ -40,7 +40,26 @@ flutter run
    - ennemis/familiers : `<id>`, `_idle_2`, `_walk`, `_attack` … `_attack_4`, `_cast` ;
    - vue de dos : suffixe `_back` (`<id>_back.png`, `<id>_back_attack_3.png`…) ;
    - planches découpées en deux moitiés 2×2 : règlage « première case de la planche ».
-4. **Export** — cases normalisées en carrés de 512 px (optionnel) et rangées dans un zip
+4. **Aperçu des animations** (bouton aux étapes 3 et 4) — les cases sont regroupées en
+   animations d'après leurs suffixes (repos, marche, sort, attaque, plus « toutes les cases »)
+   et jouées en boucle :
+   - cadence réglable (1 à 24 img/s, valeur par défaut adaptée à chaque famille), lecture
+     image par image, aller-retour (`1 2 3 2`) ;
+   - **miroir** pour simuler les directions vers la gauche (le jeu retourne l'image) ;
+   - **pelure d'oignon** (image précédente en transparence) et **ligne de sol** ;
+   - fonds damier / clair / sombre / herbe ; une image peut être retirée de la boucle d'un appui ;
+   - **partage en GIF** de l'animation (fond uni, miroir appliqué).
+   - **mouvement du jeu** : simule l'animation procédurale de Zimut (`EntityView.gd`, V35) —
+     respiration au repos, petits sauts de marche, fente d'attaque, saut de sort — et la
+     **règle par personnage** (curseurs de la famille affichée). Les réglages sont mémorisés
+     sur l'appareil par personnage (on les retrouve d'une planche à l'autre) et, s'ils
+     diffèrent des valeurs du jeu, l'export ajoute `<id>_anim.txt` (JSON) à côté du repos
+     de face, là où le jeu le lit.
+5. **Pieds alignés (ancrage au sol)** — option d'export : dans le carré de 512 px, le bas de
+   chaque sprite est posé sur la même ligne de sol (6 % du bas) au lieu de centrer la case,
+   avec une échelle commune à toutes les cases. Le personnage ne « saute » plus d'une pose à
+   l'autre. Le réglage se teste directement dans l'aperçu des animations.
+6. **Export** — cases normalisées en carrés de 512 px (optionnel) et rangées dans un zip
    **calqué sur l'arborescence du dépôt** :
 
    ```
@@ -64,12 +83,17 @@ lib/
 ├── data/catalog.dart            nations, familiers, mécanismes, planches, noms de fichiers, présélection
 ├── core/
 │   ├── detourage.dart           flood fill bord, alpha doux, décontamination
-│   ├── decoupe.dart             Grille, détection auto, extraction des cases, carré 512
+│   ├── decoupe.dart             Grille, détection auto, extraction des cases, carré 512, ancrage au sol
+│   ├── animations.dart          regroupement des poses en animations, séquence aller-retour
+│   ├── gif.dart                 encodage GIF animé (isolate)
+│   ├── reglages_anim.dart       mouvement procédural de Zimut : paramètres, formules, mémorisation
 │   └── traitement.dart          worker isolate (décodage → détour → cases → PNG)
 ├── export/atelier_export.dart   chemins du dépôt + écriture du zip (archive)
-├── widgets/apercu_grille.dart   aperçu interactif, séparateurs déplaçables au doigt
-└── screens/                     accueil + workflow en 4 étapes
-test/atelier_test.dart           noms de fichiers, catalogue, détourage, découpe
+├── widgets/
+│   ├── apercu_grille.dart       aperçu interactif, séparateurs déplaçables au doigt
+│   └── damier.dart              fond damier (transparence visible)
+└── screens/                     accueil, workflow en 4 étapes, aperçu des animations
+test/atelier_test.dart           noms de fichiers, catalogue, détourage, découpe, ancrage, animations, GIF
 ```
 
 Dépendances : `image` (décodage/encodage PNG), `file_picker`, `path_provider`, `share_plus`,

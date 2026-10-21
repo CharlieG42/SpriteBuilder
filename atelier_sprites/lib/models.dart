@@ -74,6 +74,24 @@ class OptionsTraitement {
 
   /// Recadre chaque case dans un carré de 512 px (transparent).
   bool case512 = true;
+
+  /// Dans le carré 512 : aligne le bas du sprite sur une ligne de sol commune
+  /// (les pieds ne « sautent » plus d'une pose à l'autre) au lieu de centrer la case.
+  bool ancrageSol = false;
+
+  /// Hauteur de la ligne de sol au-dessus du bas du carré (fraction 0-0.3).
+  double margeSol = 0.06;
+
+  OptionsTraitement copie() => OptionsTraitement()
+    ..detourer = detourer
+    ..tolerance = tolerance
+    ..douceur = douceur
+    ..decontaminer = decontaminer
+    ..interieurs = interieurs
+    ..aireMinInterieur = aireMinInterieur
+    ..case512 = case512
+    ..ancrageSol = ancrageSol
+    ..margeSol = margeSol;
 }
 
 /// Résultat d'un traitement de planche.
@@ -102,8 +120,11 @@ class DemandeCases {
   final bool interieurs;
   final int aireMinInterieur;
   final bool case512;
+  final bool ancrageSol;
+  final double margeSol;
 
-  /// Si > 0, la case est réduite pour tenir dans ce carré (aperçus rapides).
+  /// Si > 0, la case est réduite pour tenir dans ce carré (aperçus rapides) ;
+  /// avec [case512], c'est le carré normalisé qui est réduit à cette taille.
   final int tailleVignette;
 
   const DemandeCases({
@@ -120,6 +141,8 @@ class DemandeCases {
     required this.interieurs,
     required this.aireMinInterieur,
     required this.case512,
+    this.ancrageSol = false,
+    this.margeSol = 0.06,
     this.tailleVignette = 0,
   });
 }
