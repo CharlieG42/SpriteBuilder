@@ -118,7 +118,9 @@ String nomFichierPour({
 }
 
 // --------------------------------------------------------------------------------------------
-// Nations (scripts/Nations.gd) : héros, 4 ennemis, boss
+// Nations (scripts/Nations.gd) : héros, 4 ennemis, boss. Le biome est ajouté au libellé
+// quand il diffère du nom de la nation (Sylvestre = Forêt, Cimes = Montagne, Sables = Désert) ;
+// Sylvain est le héros des Vents, Druide celui de Sylvestre.
 // --------------------------------------------------------------------------------------------
 
 class _Nation {
@@ -133,34 +135,34 @@ class _Nation {
 
 const List<_Nation> nations = [
   _Nation('sylvestre', 'Sylvestre',
-    PersonnageCatalogue(groupe: 'Nation Sylvestre', libelle: 'Druide (héros)', id: 'druide', grand: true, dossier: 'players'),
+    PersonnageCatalogue(groupe: 'Nation Sylvestre · Forêt', libelle: 'Druide (héros)', id: 'druide', grand: true, dossier: 'players'),
     [
-      PersonnageCatalogue(groupe: 'Nation Sylvestre', libelle: 'Araknéa', id: 'araknea', grand: false, dossier: 'nations/ennemis/sylvestre'),
-      PersonnageCatalogue(groupe: 'Nation Sylvestre', libelle: 'Loup forestier', id: 'loup_forestier', grand: false, dossier: 'nations/ennemis/sylvestre'),
-      PersonnageCatalogue(groupe: 'Nation Sylvestre', libelle: 'Dryade', id: 'dryade', grand: false, dossier: 'nations/ennemis/sylvestre'),
-      PersonnageCatalogue(groupe: 'Nation Sylvestre', libelle: 'Tréant', id: 'treant', grand: false, dossier: 'nations/ennemis/sylvestre'),
+      PersonnageCatalogue(groupe: 'Nation Sylvestre · Forêt', libelle: 'Araknéa', id: 'araknea', grand: false, dossier: 'nations/ennemis/sylvestre'),
+      PersonnageCatalogue(groupe: 'Nation Sylvestre · Forêt', libelle: 'Loup forestier', id: 'loup_forestier', grand: false, dossier: 'nations/ennemis/sylvestre'),
+      PersonnageCatalogue(groupe: 'Nation Sylvestre · Forêt', libelle: 'Dryade', id: 'dryade', grand: false, dossier: 'nations/ennemis/sylvestre'),
+      PersonnageCatalogue(groupe: 'Nation Sylvestre · Forêt', libelle: 'Tréant', id: 'treant', grand: false, dossier: 'nations/ennemis/sylvestre'),
     ],
-    PersonnageCatalogue(groupe: 'Nation Sylvestre', libelle: 'Tharok le Végétal (boss)', id: 'sylvestre', grand: true, dossier: 'nations/boss'),
+    PersonnageCatalogue(groupe: 'Nation Sylvestre · Forêt', libelle: 'Tharok le Végétal (boss)', id: 'sylvestre', grand: true, dossier: 'nations/boss'),
   ),
   _Nation('cimes', 'Cimes',
-    PersonnageCatalogue(groupe: 'Nation Cimes', libelle: 'Tank (héros)', id: 'tank', grand: true, dossier: 'players'),
+    PersonnageCatalogue(groupe: 'Nation Cimes · Montagne', libelle: 'Tank (héros)', id: 'tank', grand: true, dossier: 'players'),
     [
-      PersonnageCatalogue(groupe: 'Nation Cimes', libelle: 'Guerrier des monts', id: 'guerrier_des_monts', grand: false, dossier: 'nations/ennemis/cimes'),
-      PersonnageCatalogue(groupe: 'Nation Cimes', libelle: 'Griffon des cimes', id: 'griffon_des_cimes', grand: false, dossier: 'nations/ennemis/cimes'),
-      PersonnageCatalogue(groupe: 'Nation Cimes', libelle: 'Garde des pics', id: 'garde_des_pics', grand: false, dossier: 'nations/ennemis/cimes'),
-      PersonnageCatalogue(groupe: 'Nation Cimes', libelle: 'Rochebrute', id: 'rochebrute', grand: false, dossier: 'nations/ennemis/cimes'),
+      PersonnageCatalogue(groupe: 'Nation Cimes · Montagne', libelle: 'Guerrier des monts', id: 'guerrier_des_monts', grand: false, dossier: 'nations/ennemis/cimes'),
+      PersonnageCatalogue(groupe: 'Nation Cimes · Montagne', libelle: 'Griffon des cimes', id: 'griffon_des_cimes', grand: false, dossier: 'nations/ennemis/cimes'),
+      PersonnageCatalogue(groupe: 'Nation Cimes · Montagne', libelle: 'Garde des pics', id: 'garde_des_pics', grand: false, dossier: 'nations/ennemis/cimes'),
+      PersonnageCatalogue(groupe: 'Nation Cimes · Montagne', libelle: 'Rochebrute', id: 'rochebrute', grand: false, dossier: 'nations/ennemis/cimes'),
     ],
-    PersonnageCatalogue(groupe: 'Nation Cimes', libelle: 'Vorkann le Givre (boss)', id: 'cimes', grand: true, dossier: 'nations/boss'),
+    PersonnageCatalogue(groupe: 'Nation Cimes · Montagne', libelle: 'Vorkann le Givre (boss)', id: 'cimes', grand: true, dossier: 'nations/boss'),
   ),
   _Nation('sables', 'Sables',
-    PersonnageCatalogue(groupe: 'Nation Sables', libelle: 'Géomancien (héros)', id: 'geomancien', grand: true, dossier: 'players'),
+    PersonnageCatalogue(groupe: 'Nation Sables · Désert', libelle: 'Géomancien (héros)', id: 'geomancien', grand: true, dossier: 'players'),
     [
-      PersonnageCatalogue(groupe: 'Nation Sables', libelle: 'Bandit des dunes', id: 'bandit_des_dunes', grand: false, dossier: 'nations/ennemis/sables'),
-      PersonnageCatalogue(groupe: 'Nation Sables', libelle: 'Scarabée géant', id: 'scarabee_geant', grand: false, dossier: 'nations/ennemis/sables'),
-      PersonnageCatalogue(groupe: 'Nation Sables', libelle: 'Génie du désert', id: 'genie_du_desert', grand: false, dossier: 'nations/ennemis/sables'),
-      PersonnageCatalogue(groupe: 'Nation Sables', libelle: 'Sphinx', id: 'sphinx', grand: false, dossier: 'nations/ennemis/sables'),
+      PersonnageCatalogue(groupe: 'Nation Sables · Désert', libelle: 'Bandit des dunes', id: 'bandit_des_dunes', grand: false, dossier: 'nations/ennemis/sables'),
+      PersonnageCatalogue(groupe: 'Nation Sables · Désert', libelle: 'Scarabée géant', id: 'scarabee_geant', grand: false, dossier: 'nations/ennemis/sables'),
+      PersonnageCatalogue(groupe: 'Nation Sables · Désert', libelle: 'Génie du désert', id: 'genie_du_desert', grand: false, dossier: 'nations/ennemis/sables'),
+      PersonnageCatalogue(groupe: 'Nation Sables · Désert', libelle: 'Sphinx', id: 'sphinx', grand: false, dossier: 'nations/ennemis/sables'),
     ],
-    PersonnageCatalogue(groupe: 'Nation Sables', libelle: 'Zahor le Sableux (boss)', id: 'sables', grand: true, dossier: 'nations/boss'),
+    PersonnageCatalogue(groupe: 'Nation Sables · Désert', libelle: 'Zahor le Sableux (boss)', id: 'sables', grand: true, dossier: 'nations/boss'),
   ),
   _Nation('cristaux', 'Cristaux',
     PersonnageCatalogue(groupe: 'Nation Cristaux', libelle: 'Mage (héros)', id: 'mage', grand: true, dossier: 'players'),

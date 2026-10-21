@@ -5,6 +5,7 @@ import 'package:atelier_sprites/core/decoupe.dart';
 import 'package:atelier_sprites/core/detourage.dart';
 import 'package:atelier_sprites/core/doublons.dart';
 import 'package:atelier_sprites/core/gif.dart';
+import 'package:atelier_sprites/core/intensite.dart';
 import 'package:atelier_sprites/core/reglages_anim.dart';
 import 'package:atelier_sprites/core/traitement.dart';
 import 'package:atelier_sprites/data/catalog.dart';
@@ -455,6 +456,81 @@ void main() {
       expect(anims.map((a) => a.libelle).toList(),
           ['Face · Repos', 'Face · Marche', 'Face · Attaque', 'Dos · Repos', 'Dos · Marche']);
       expect(anims[2].cases, [100, 101]);
+    });
+  });
+
+  group('intensité et aperçu du détourage', () {
+    img.Image planche() {
+      final im = img.Image(width: 60, height: 40, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 10, y1: 10, x2: 29, y2: 29, color: img.ColorRgb8(30, 30, 200));
+      return im;
+    }
+
+    int largeurSprite(img.Image im, int y) {
+      var n = 0;
+      for (var x = 0; x < im.width; x++) {
+        if (im.getPixel(x, y).a.toInt() > 128) n++;
+      }
+      return n;
+    }
+
+    test('rognage : + grignote le bord, − le rend sans anneau de fond', () {
+      final normal = planche();
+      detourer(normal, tolerance: 30, douceur: 1.0, decontaminer: true);
+      final rogne = planche();
+      detourer(rogne, tolerance: 30, douceur: 1.0, decontaminer: true, rognage: 2);
+      final rendu = planche();
+      detourer(rendu, tolerance: 30, douceur: 1.0, decontaminer: true, rognage: -2);
+      expect(largeurSprite(normal, 20), 20);
+      expect(largeurSprite(rogne, 20), 16, reason: '2 px retirés de chaque côté');
+      // Fond blanc pur autour du sprite : rien de visible n'est rendu.
+      expect(largeurSprite(rendu, 20), 20);
+      expect(rendu.getPixel(9, 20).a.toInt(), 0);
+    });
+
+    test('rognage − : un bord clair mangé par la tolérance est rendu', () {
+      final im = planche();
+      // liseré gris très clair autour du sprite (partie du dessin)
+      img.drawRect(im, x1: 9, y1: 9, x2: 30, y2: 30, color: img.ColorRgb8(215, 215, 215));
+      final mange = im.clone();
+      detourer(mange, tolerance: 60, douceur: 1.0, decontaminer: false);
+      expect(mange.getPixel(9, 20).a.toInt(), 0, reason: 'liseré pris pour du fond');
+      detourer(im, tolerance: 60, douceur: 1.0, decontaminer: false, rognage: -1);
+      expect(im.getPixel(9, 20).a.toInt(), greaterThan(0), reason: 'liseré rendu');
+    });
+
+    test('niveaux d\'intensité : Normal = défauts, reconnaissance du niveau', () {
+      final o = OptionsTraitement();
+      expect(niveauDe(o), 1);
+      appliquerNiveau(o, 3);
+      expect(o.tolerance, 85);
+      expect(o.rognage, 2);
+      expect(niveauDe(o), 3);
+      o.tolerance = 50;
+      expect(niveauDe(o), -1);
+      expect(o.copie().rognage, 2);
+    });
+
+    test('aperçu : original, détouré et zones retirées de même taille ; zoom sur une case', () {
+      final octets = img.encodePng(planche());
+      final demande = construireDemande(octets, Grille.uniforme(2, 1), OptionsTraitement(), const <int>[]);
+      final entier = apercuDetourage(DemandeApercuDetour(demande));
+      expect(entier.largeur, 60);
+      expect(entier.pourcentageFond, greaterThan(50));
+      final retrait = img.decodePng(entier.retrait)!;
+      expect(retrait.getPixel(2, 2).a.toInt(), greaterThan(0), reason: 'fond retiré en rouge');
+      expect(retrait.getPixel(20, 20).a.toInt(), 0, reason: 'sprite intact');
+      final zoom = apercuDetourage(DemandeApercuDetour(demande, caseIndex: 1));
+      expect(zoom.largeur, 30);
+      expect(img.decodePng(zoom.original)!.width, 30);
+    });
+
+    test('libellés des nations : biome précisé, Sylvain chez les Vents', () {
+      final sylvain = catalogueComplet().firstWhere((p) => p.id == 'sylvain');
+      final druide = catalogueComplet().firstWhere((p) => p.id == 'druide');
+      expect(sylvain.groupe, 'Nation Vents');
+      expect(druide.groupe, 'Nation Sylvestre · Forêt');
     });
   });
 }
