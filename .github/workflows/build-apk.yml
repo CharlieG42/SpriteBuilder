@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-apk:
-    name: Build debug APK
+    name: Build APK (debug + release)
     runs-on: ubuntu-24.04
 
     steps:
@@ -41,25 +41,91 @@ jobs:
           flutter create --org wildzimut --platforms android --project-name atelier_sprites .
           git checkout -- pubspec.yaml README.md 2>/dev/null || true
           rm -f test/widget_test.dart
+          # Signature release (si key.properties existe) + nom affiché « Atelier Sprites »
+          python3 tool/configurer_android.py
 
       - name: Install dependencies
         run: |
           cd atelier_sprites
           flutter pub get
 
+      - name: Generate launcher icons
+        run: |
+          cd atelier_sprites
+          dart run flutter_launcher_icons
+
       - name: Run tests
         run: |
           cd atelier_sprites
           flutter test
+
+      - name: Prepare release signing
+        # Secrets absents (fork, dépôt pas encore configuré) : la release est signée
+        # avec la clé de debug, installable mais pas destinée à être diffusée.
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd atelier_sprites/android
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "::warning::Secrets de signature absents : APK release signé avec la clé de debug."
+            echo "SIGNATURE=debug" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > app/release.jks
+          chmod 600 app/release.jks
+          test -s app/release.jks || { echo "::error::ANDROID_KEYSTORE_BASE64 ne se décode pas." >&2; exit 1; }
+          umask 077
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$ANDROID_KEY_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > key.properties
+          echo "SIGNATURE=release" >> "$GITHUB_ENV"
 
       - name: Build debug APK
         run: |
           cd atelier_sprites
           flutter build apk --debug
 
-      - name: Upload APK artifact
+      - name: Build release APK
+        run: |
+          cd atelier_sprites
+          # versionCode = numéro de run : chaque APK installe par-dessus le précédent
+          flutter build apk --release --build-number=${{ github.run_number }}
+          version=$(grep -m1 '^version:' pubspec.yaml | sed -E 's/version:[[:space:]]*([^+]+).*/\1/')
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             "build/app/outputs/flutter-apk/atelier-sprites-${version}-${{ github.run_number }}.apk"
+          echo "APK_VERSION=${version}-${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Verify release signature
+        run: |
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          apk="atelier_sprites/build/app/outputs/flutter-apk/atelier-sprites-${APK_VERSION}.apk"
+          "$apksigner" verify --print-certs "$apk" | tee certs.txt
+          if [ "$SIGNATURE" = "release" ] && grep -q "CN=Android Debug" certs.txt; then
+            echo "::error::La release est signée avec la clé de debug malgré les secrets." >&2
+            exit 1
+          fi
+          echo "### APK release ${APK_VERSION} — signature : ${SIGNATURE}" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "certificate DN|SHA-256" certs.txt | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean signing material
+        if: always()
+        run: rm -f atelier_sprites/android/app/release.jks atelier_sprites/android/key.properties
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: atelier-sprites-debug-apk
           path: atelier_sprites/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: atelier-sprites-release-apk-${{ env.APK_VERSION }}
+          path: atelier_sprites/build/app/outputs/flutter-apk/atelier-sprites-${{ env.APK_VERSION }}.apk
           if-no-files-found: error

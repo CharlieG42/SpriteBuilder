@@ -1,0 +1,15 @@
+# Coque plateforme régénérée par `flutter create` (CI et local)
+atelier_sprites/android/
+atelier_sprites/ios/
+atelier_sprites/build/
+atelier_sprites/.dart_tool/
+atelier_sprites/.flutter-plugins
+atelier_sprites/.flutter-plugins-dependencies
+atelier_sprites/.metadata
+atelier_sprites/pubspec.lock
+atelier_sprites/test/widget_test.dart
+
+# Signature : ne JAMAIS versionner la clé ni ses mots de passe
+*.jks
+*.keystore
+key.properties
