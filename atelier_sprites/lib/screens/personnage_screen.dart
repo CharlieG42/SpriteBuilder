@@ -192,14 +192,19 @@ class _PersonnageScreenState extends State<PersonnageScreen> {
     final noms = <int, String>{};
     for (final pl in planches) {
       final ip = _projet.planches.indexOf(pl);
-      final vue = pl.planche!.vue == Vue.dos ? 'Dos' : 'Face';
-      final inclus = pl.indicesInclus;
-      for (var rang = 0; rang < inclus.length; rang++) {
-        final i = inclus[rang];
+      for (final i in pl.indicesInclus) {
         final cle = _cle(ip, i);
-        final pos = pl.planche!.type.index * 100 + pl.premiereCase - 1 + rang;
-        parVue.putIfAbsent(vue, () => []).add((pos, cle, pl.suffixeCase(i)));
         noms[cle] = pl.nomFinal(i, perso);
+        final brut = pl.suffixeCase(i);
+        if (brut == null) {
+          // Pose hors convention : visible dans « Toutes les cases » seulement.
+          parVue.putIfAbsent(pl.planche!.vue == Vue.dos ? 'Dos' : 'Face', () => []).add((99999 + cle, cle, null));
+          continue;
+        }
+        // Les poses d'une même animation peuvent venir de planches différentes
+        // (V36) : on les classe par vue réelle et par numéro de pose.
+        final p = vueDeLaPose(plancheDos: pl.planche!.vue == Vue.dos, suffixe: brut);
+        parVue.putIfAbsent(p.dos ? 'Dos' : 'Face', () => []).add((rangDePose(p.suffixe), cle, p.suffixe));
       }
     }
     final groupes = <String, Map<int, String?>>{};
@@ -477,6 +482,9 @@ class _PersonnageScreenState extends State<PersonnageScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(etat, style: theme.textTheme.labelMedium?.copyWith(color: couleur)),
+                        if (pl.doublons.any((d) => d.identique && !pl.exclues.contains(d.a) && !pl.exclues.contains(d.b)))
+                          Text('Poses en double',
+                              style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.error)),
                       ],
                     ),
                   ),

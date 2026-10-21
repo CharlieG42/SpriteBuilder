@@ -11,79 +11,87 @@ import '../models.dart';
 const String racineAssets = 'prototype/zimut/assets/sprites';
 
 // --------------------------------------------------------------------------------------------
-// Planches
+// Planches (V36) : une fiche de référence (repos face + dos), puis des planches de
+// 4 poses en grille 2 × 2, une seule vue par planche. Ordre des cases : gauche à
+// droite, haut en bas. Les suffixes des planches de dos sont précédés de `_back`
+// par [nomFichierPour].
 // --------------------------------------------------------------------------------------------
 
-const List<String> _suffixesGrandRepos = [
-  '', '_idle_2', '_idle_3', '_walk', '_walk_2', '_cast', '_cast_2', '_cast_3',
-];
-const List<String> _libellesGrandRepos = [
-  'repos 1', 'repos 2', 'repos 3', 'marche 1', 'marche 2', 'sort 1', 'sort 2', 'sort 3',
-];
-const List<String> _suffixesGrandAttaques = [
-  '_attack', '_attack_2', '_attack_3', '_attack_4',
-  '_attack_5', '_attack_6', '_attack_7', '_attack_8',
-];
-const List<String> _libellesGrandAttaques = [
-  'attaque 1', 'attaque 2', 'attaque 3', 'attaque 4',
-  'attaque 5', 'attaque 6', 'attaque 7', 'attaque 8',
-];
-const List<String> _suffixesPetit = [
-  '', '_idle_2', '_walk', '_attack', '_attack_2', '_attack_3', '_attack_4', '_cast',
-];
-const List<String> _libellesPetit = [
-  'repos 1', 'repos 2', 'marche 1', 'attaque 1', 'attaque 2', 'attaque 3', 'attaque 4', 'sort 1',
-];
+const PlancheDef _reference = PlancheDef(
+  cle: 'ref',
+  libelle: 'Référence · repos de face + repos de dos',
+  vue: Vue.face,
+  type: TypePlanche.reference,
+  suffixes: ['', '_back'],
+  libellesPoses: ['repos (face)', 'repos (dos)'],
+);
 
 const List<PlancheDef> planchesGrand = [
+  _reference,
   PlancheDef(
-    libelle: 'Face (3/4 avant) · Repos, marche et sorts',
+    cle: 'face_1',
+    libelle: 'Face 1 · garde, marche, sort',
     vue: Vue.face,
-    type: TypePlanche.grandRepos,
-    suffixes: _suffixesGrandRepos,
-    libellesPoses: _libellesGrandRepos,
+    type: TypePlanche.poses,
+    suffixes: ['_idle_2', '_walk', '_walk_2', '_cast'],
+    libellesPoses: ['repos 2 (garde)', 'marche 1', 'marche 2', 'sort 1'],
   ),
   PlancheDef(
-    libelle: 'Face (3/4 avant) · Attaques',
+    cle: 'face_2',
+    libelle: 'Face 2 · attaques 1 à 4',
     vue: Vue.face,
-    type: TypePlanche.grandAttaques,
-    suffixes: _suffixesGrandAttaques,
-    libellesPoses: _libellesGrandAttaques,
+    type: TypePlanche.poses,
+    suffixes: ['_attack', '_attack_2', '_attack_3', '_attack_4'],
+    libellesPoses: ['attaque 1', 'attaque 2', 'attaque 3', 'attaque 4'],
   ),
   PlancheDef(
-    libelle: 'Dos (3/4 arrière) · Repos, marche et sorts',
-    vue: Vue.dos,
-    type: TypePlanche.grandRepos,
-    suffixes: _suffixesGrandRepos,
-    libellesPoses: _libellesGrandRepos,
+    cle: 'face_3',
+    libelle: 'Face 3 · attaques 5-6, sorts 2-3',
+    vue: Vue.face,
+    type: TypePlanche.poses,
+    suffixes: ['_attack_5', '_attack_6', '_cast_2', '_cast_3'],
+    libellesPoses: ['attaque 5', 'attaque 6', 'sort 2', 'sort 3'],
   ),
   PlancheDef(
-    libelle: 'Dos (3/4 arrière) · Attaques',
+    cle: 'dos_1',
+    libelle: 'Dos 1 · marche, attaque, sort',
     vue: Vue.dos,
-    type: TypePlanche.grandAttaques,
-    suffixes: _suffixesGrandAttaques,
-    libellesPoses: _libellesGrandAttaques,
+    type: TypePlanche.poses,
+    suffixes: ['_walk', '_walk_2', '_attack', '_cast'],
+    libellesPoses: ['marche 1', 'marche 2', 'attaque 1', 'sort 1'],
+  ),
+  PlancheDef(
+    cle: 'dos_2',
+    libelle: 'Dos 2 · attaques 2 à 4, garde',
+    vue: Vue.dos,
+    type: TypePlanche.poses,
+    suffixes: ['_attack_2', '_attack_3', '_attack_4', '_idle_2'],
+    libellesPoses: ['attaque 2', 'attaque 3', 'attaque 4', 'repos 2 (garde)'],
   ),
 ];
 
 const List<PlancheDef> planchesPetit = [
+  _reference,
   PlancheDef(
-    libelle: 'Face (3/4 avant)',
+    cle: 'face_1',
+    libelle: 'Face · marche, 2 attaques, sort',
     vue: Vue.face,
-    type: TypePlanche.petitTout,
-    suffixes: _suffixesPetit,
-    libellesPoses: _libellesPetit,
+    type: TypePlanche.poses,
+    suffixes: ['_walk', '_attack', '_attack_2', '_cast'],
+    libellesPoses: ['marche', 'attaque 1', 'attaque 2', 'sort'],
   ),
   PlancheDef(
-    libelle: 'Dos (3/4 arrière)',
+    cle: 'dos_1',
+    libelle: 'Dos · marche, 2 attaques, sort',
     vue: Vue.dos,
-    type: TypePlanche.petitTout,
-    suffixes: _suffixesPetit,
-    libellesPoses: _libellesPetit,
+    type: TypePlanche.poses,
+    suffixes: ['_walk', '_attack', '_attack_2', '_cast'],
+    libellesPoses: ['marche', 'attaque 1', 'attaque 2', 'sort'],
   ),
 ];
 
 const PlancheDef plancheObjets = PlancheDef(
+  cle: 'objets',
   libelle: 'Objets (une pose par objet)',
   vue: Vue.face,
   type: TypePlanche.objets,
@@ -292,9 +300,9 @@ class Presel {
 
 /// Devine le personnage et la planche depuis un nom de fichier.
 ///
-/// Conventions supportées : identifiant du personnage (`assassin`, `liche`…),
-/// `dos`/`back` pour la vue arrière, `attaque(s)`/`attack(s)` pour les planches
-/// d'attaques des héros et boss.
+/// Conventions (V36) : `<id>_ref`, `<id>_face_2`, `<id>_dos_1`… ; `dos`/`back`
+/// sans numéro → première planche de dos, `face` ou `attaque(s)` sans numéro →
+/// planche de face correspondante. Sans indication : fiche de référence.
 Presel preselDepuisNomFichier(String nom) {
   final n = nom.toLowerCase();
   PersonnageCatalogue? perso;
@@ -306,14 +314,25 @@ Presel preselDepuisNomFichier(String nom) {
     }
   }
   if (perso == null) return const Presel(null, null);
-
   if (mecanismes.contains(perso)) return Presel(perso, plancheObjets);
 
-  final dos = n.contains('dos') || n.contains('back');
-  final att = n.contains('attaque') || n.contains('attack');
-  if (perso.grand) {
-    final index = (dos ? 2 : 0) + (att ? 1 : 0);
-    return Presel(perso, planchesGrand[index]);
+  final planches = planchesPour(perso);
+  final reste = n.replaceFirst(perso.id, '');
+  if (RegExp(r'(^|[^a-z])(ref|reference|référence)([^a-z]|$)').hasMatch(reste)) {
+    return Presel(perso, planches.first);
   }
-  return Presel(perso, planchesPetit[dos ? 1 : 0]);
+  final num = RegExp(r'(face|dos|back)[ _-]?(\d)').firstMatch(reste);
+  if (num != null) {
+    final vue = num.group(1) == 'face' ? 'face' : 'dos';
+    final cle = '${vue}_${num.group(2)}';
+    for (final pl in planches) {
+      if (pl.cle == cle) return Presel(perso, pl);
+    }
+  }
+  final dos = reste.contains('dos') || reste.contains('back');
+  final att = reste.contains('attaque') || reste.contains('attack');
+  if (dos) return Presel(perso, planches.firstWhere((p) => p.vue == Vue.dos && p.type == TypePlanche.poses));
+  if (att && perso.grand) return Presel(perso, planches.firstWhere((p) => p.cle == 'face_2'));
+  if (reste.contains('face') || att) return Presel(perso, planches.firstWhere((p) => p.cle == 'face_1'));
+  return Presel(perso, planches.first);
 }

@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'core/decoupe.dart';
+import 'core/doublons.dart';
 import 'data/catalog.dart';
 import 'models.dart';
 
@@ -20,7 +21,7 @@ class PlancheProjet {
   /// Type de planche attribué (`null` : à attribuer).
   PlancheDef? planche;
 
-  /// Position de la première case dans la planche (demi-planche 2×2 : 5).
+  /// Position de la première case dans la planche (planche coupée en deux images).
   int premiereCase = 1;
 
   final Set<int> exclues = <int>{};
@@ -36,6 +37,9 @@ class PlancheProjet {
   Map<int, Uint8List>? cacheAnim;
   bool? cacheAnimSol;
 
+  /// Poses en double détectées sur les vignettes (index de case de cette planche).
+  List<Doublon> doublons = const <Doublon>[];
+
   PlancheProjet({
     required this.octets,
     required this.nomFichier,
@@ -48,6 +52,7 @@ class PlancheProjet {
   void invaliderApercus() {
     vignettes = <String, Uint8List>{};
     apercuDetour = null;
+    doublons = const <Doublon>[];
     cacheAnim = null;
     cacheAnimSol = null;
   }
@@ -164,7 +169,7 @@ class ProjetPersonnage {
 
   /// Première case conseillée pour une nouvelle planche de type [def] : à la
   /// suite des cases déjà couvertes par les autres planches du même type
-  /// (deux moitiés 2×2 d'une planche 4×2).
+  /// (planche coupée en deux images).
   int premiereCaseSuggeree(PlancheDef def, {PlancheProjet? sauf}) {
     var couvertes = 0;
     for (final p in planches) {
@@ -201,6 +206,12 @@ List<Alerte> controlerProjet(ProjetPersonnage projet) {
       alertes.add(Alerte('${p.nomFichier} : type de planche à attribuer.', bloquante: true));
     } else if (p.indicesInclus.isEmpty) {
       alertes.add(Alerte('${p.nomFichier} : toutes les cases sont exclues.'));
+    }
+    // Poses en double (V36) : signalées tant qu'elles restent incluses.
+    final identiques = p.doublons.where((d) => d.identique && !p.exclues.contains(d.a) && !p.exclues.contains(d.b));
+    if (identiques.isNotEmpty) {
+      final paires = identiques.map((d) => '${d.a + 1}/${d.b + 1}').join(', ');
+      alertes.add(Alerte('${p.nomFichier} : poses en double (cases $paires) — régénère la planche ou exclus-les.'));
     }
   }
 

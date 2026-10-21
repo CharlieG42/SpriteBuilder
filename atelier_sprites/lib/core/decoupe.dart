@@ -36,7 +36,7 @@ class Grille {
 Grille detecterGrille(
   img.Image src, {
   required int tolerance,
-  int defautCols = 4,
+  int defautCols = 2,
   int defautRows = 2,
 }) {
   final w = src.width;
@@ -117,7 +117,7 @@ img.Image extraireCase(img.Image src, Grille g, int col, int row) {
   return img.copyCrop(src, x: x0, y: y0, width: x1 - x0, height: y1 - y0);
 }
 
-/// Côté des cases exportées (convention des planches 4×2).
+/// Côté des cases exportées.
 const int coteCarre = 512;
 
 /// Placement du sprite dans le carré normalisé.
@@ -169,7 +169,7 @@ double ratioCommun(img.Image src, Grille g, List<int> indices, int cote) {
 }
 
 /// Recadre la case dans un carré [cote] (fond transparent), sans jamais
-/// agrandir le sprite. Les planches 4×2 sortent en cases de 512 px.
+/// agrandir le sprite. Les cases sortent en carrés de 512 px.
 ///
 /// [ratio] impose l'échelle (sinon calculée sur la case seule). Avec
 /// [Ancrage.sol], le bas du contenu est posé à [margeSol] × [cote] du bas.

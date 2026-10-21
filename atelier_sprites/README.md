@@ -20,18 +20,22 @@ flutter run
 ## Pipeline
 
 0. **Personnage (plusieurs planches)** — on importe d'un coup une ou plusieurs planches d'un
-   même personnage, **chacune avec sa propre grille** (4×2, 3×3, demi-planches 2×2…). Le
-   personnage et le type de chaque planche sont présélectionnés depuis les noms de fichiers ;
-   une seconde moitié 2×2 reprend automatiquement à la case 5. L'écran Personnage liste les
+   même personnage, **chacune avec sa propre grille** (fiche de référence 2×1, planches de
+   poses 2×2, ou toute autre grille produite par le générateur). Le personnage et le type de
+   chaque planche sont présélectionnés depuis les noms de fichiers (`<id>_ref`, `<id>_face_2`,
+   `<id>_dos_1`…) ; une planche coupée en deux images reprend automatiquement à la bonne case.
+   L'écran Personnage liste les
    planches (grille, cases exclues, état *à attribuer / à vérifier / prête*) et vérifie avant
    export :
-   - **doublons** : deux cases qui produiraient le même fichier (bloquant) ;
+   - **noms en double** : deux cases qui produiraient le même fichier (bloquant) ;
+   - **poses en double** détectées sur une planche et encore incluses ;
    - **poses manquantes** dans une planche (ex. `assassin_back_cast_2.png`) ;
    - planches sans type (bloquant).
    L'export produit **un seul zip** `zimut_sprites_<id>.zip` avec une **échelle commune** à
    toutes les planches (la plus grande case fixe la réduction) et la même ligne de sol : le
    personnage garde la même taille entre repos, attaques, face et dos. L'aperçu des
-   animations combine toutes les planches (« Face · Repos », « Dos · Attaque »…).
+   animations combine toutes les planches et range chaque pose selon sa vue réelle et son
+   numéro (« Face · Repos » = `<id>` de la fiche de référence + `_idle_2` de Face 1).
    Touche une planche pour ouvrir son parcours en 4 étapes ci-dessous ; le détourage et les
    options d'export sont communs au personnage.
 
@@ -49,13 +53,15 @@ flutter run
    - indicateur de contrôle : pourcentage de fond retiré, alerte si < 5 % ou > 92 %.
 3. **Personnage & poses** — catalogue complet embarqué (10 nations : héros, 4 ennemis, boss ;
    12 familiers ; 10 mécanismes), **présélection automatique depuis le nom du fichier**
-   (`assassin_dos_attaques.png` → Assassin + Dos · Attaques). Les noms de poses s'appliquent
-   dans l'ordre des cases selon la convention `EntityView.gd` (V34) :
-   - héros/boss, repos et sorts : `<id>`, `_idle_2`, `_idle_3`, `_walk`, `_walk_2`, `_cast`, `_cast_2`, `_cast_3` ;
-   - héros/boss, attaques : `_attack` … `_attack_8` ;
-   - ennemis/familiers : `<id>`, `_idle_2`, `_walk`, `_attack` … `_attack_4`, `_cast` ;
-   - vue de dos : suffixe `_back` (`<id>_back.png`, `<id>_back_attack_3.png`…) ;
-   - planches découpées en deux moitiés 2×2 : règlage « première case de la planche ».
+   (`assassin_face_2.png` → Assassin + Face 2). Les noms de poses s'appliquent dans l'ordre
+   des cases (gauche à droite, haut en bas) selon la convention V36 (`prompts_sprites`) :
+   - fiche de référence (tous) : `<id>`, `<id>_back` ;
+   - héros/boss — Face 1 : `_idle_2`, `_walk`, `_walk_2`, `_cast` ; Face 2 : `_attack` … `_attack_4` ;
+     Face 3 : `_attack_5`, `_attack_6`, `_cast_2`, `_cast_3` ; Dos 1 : `_back_walk`, `_back_walk_2`,
+     `_back_attack`, `_back_cast` ; Dos 2 : `_back_attack_2` … `_back_attack_4`, `_back_idle_2` ;
+   - ennemis/familiers — Face : `_walk`, `_attack`, `_attack_2`, `_cast` ; Dos : idem avec `_back` ;
+   - **poses en double** : signature de chaque case comparée aux autres, bouton pour les exclure ;
+   - planche coupée en deux images : réglage « première case de la planche ».
 4. **Aperçu des animations** (bouton aux étapes 3 et 4) — les cases sont regroupées en
    animations d'après leurs suffixes (repos, marche, sort, attaque, plus « toutes les cases »)
    et jouées en boucle :

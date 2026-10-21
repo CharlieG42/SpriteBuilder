@@ -118,3 +118,20 @@ List<AnimationDef> animationsProjet(Map<String, Map<int, String?>> groupes) {
   }
   return sortie;
 }
+
+/// Vue réelle et suffixe sans `_back` d'une pose : la fiche de référence (V36)
+/// porte le repos de dos (`_back`) alors qu'elle est rangée en vue de face.
+({bool dos, String suffixe}) vueDeLaPose({required bool plancheDos, required String suffixe}) {
+  if (suffixe == '_back' || suffixe.startsWith('_back_')) {
+    return (dos: true, suffixe: suffixe.substring(5));
+  }
+  return (dos: plancheDos, suffixe: suffixe);
+}
+
+/// Ordre de lecture d'une pose dans sa famille : `''` < `_idle_2` < `_idle_3`,
+/// `_attack` < `_attack_2`… (les numéros manquants valent 1).
+int rangDePose(String suffixe) {
+  final m = RegExp(r'_(\d+)$').firstMatch(suffixe);
+  final n = m == null ? 1 : int.parse(m.group(1)!);
+  return familleDuSuffixe(suffixe).index * 100 + n;
+}

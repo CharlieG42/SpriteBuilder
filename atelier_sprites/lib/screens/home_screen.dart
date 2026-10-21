@@ -31,7 +31,7 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             'Sélectionne une ou plusieurs planches d\'un même personnage (face, dos, '
-            'repos, attaques, demi-planches 2×2…) : elles sont exportées ensemble, '
+            'référence, planches de poses…) : elles sont exportées ensemble, '
             'à la même échelle, dans un seul zip.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -68,8 +68,10 @@ class HomeScreen extends StatelessWidget {
                   Text('• Jamais « transparent background » dans le générateur : faux damier garanti.'),
                   Text('• Fond gris #808080 pour les personnages clairs (Mage, Heal, Sylvain, boss Cristaux et Vents).'),
                   Text('• Pas d\'ombre au sol : le jeu dessine l\'ombre lui-même.'),
-                  Text('• Une seule vue par planche (3/4 avant ou 3/4 arrière).'),
-                  Text('• Vérifie à l\'œil la grille produite par l\'IA (parfois 3×3 au lieu de 4×2).'),
+                  Text('• D\'abord la fiche de référence (repos face + dos), jointe ensuite à chaque planche.'),
+                  Text('• Planches de 4 poses (2 × 2), une seule vue (3/4 avant ou 3/4 arrière).'),
+                  Text('• Ni cadres, ni grille au sol : les poses doivent flotter sur le fond.'),
+                  Text('• L\'Atelier signale les poses en double : régénère la planche plutôt que de les garder.'),
                 ],
               ),
             ),
