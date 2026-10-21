@@ -92,3 +92,46 @@ List<int> sequenceLecture(List<int> cases, {required bool allerRetour}) {
     for (var i = cases.length - 2; i >= 1; i--) cases[i],
   ];
 }
+
+/// Animations d'un personnage à plusieurs planches : les cases d'une même vue
+/// (ex. « Face ») sont fusionnées puis regroupées par famille (« Face · Repos »,
+/// « Dos · Attaque »…). [groupes] associe un libellé de vue aux suffixes de ses
+/// cases (clés globales, uniques entre planches).
+List<AnimationDef> animationsProjet(Map<String, Map<int, String?>> groupes) {
+  final sortie = <AnimationDef>[];
+  final toutes = <int>[];
+  for (final g in groupes.entries) {
+    toutes.addAll(g.value.keys);
+    for (final a in animationsPour(g.value)) {
+      if (a.famille == null) continue;
+      sortie.add(AnimationDef(
+        libelle: '${g.key} · ${a.libelle}',
+        famille: a.famille,
+        cases: a.cases,
+        fps: a.fps,
+        allerRetour: a.allerRetour,
+      ));
+    }
+  }
+  if (sortie.isEmpty) {
+    sortie.add(AnimationDef(libelle: 'Toutes les cases', famille: null, cases: toutes, fps: 4));
+  }
+  return sortie;
+}
+
+/// Vue réelle et suffixe sans `_back` d'une pose : la fiche de référence (V36)
+/// porte le repos de dos (`_back`) alors qu'elle est rangée en vue de face.
+({bool dos, String suffixe}) vueDeLaPose({required bool plancheDos, required String suffixe}) {
+  if (suffixe == '_back' || suffixe.startsWith('_back_')) {
+    return (dos: true, suffixe: suffixe.substring(5));
+  }
+  return (dos: plancheDos, suffixe: suffixe);
+}
+
+/// Ordre de lecture d'une pose dans sa famille : `''` < `_idle_2` < `_idle_3`,
+/// `_attack` < `_attack_2`… (les numéros manquants valent 1).
+int rangDePose(String suffixe) {
+  final m = RegExp(r'_(\d+)$').firstMatch(suffixe);
+  final n = m == null ? 1 : int.parse(m.group(1)!);
+  return familleDuSuffixe(suffixe).index * 100 + n;
+}

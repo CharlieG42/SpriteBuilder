@@ -4,7 +4,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../data/catalog.dart';
-import 'workflow_screen.dart';
+import 'personnage_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -24,11 +24,16 @@ class HomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const WorkflowScreen()),
-            ),
+            onPressed: () => PersonnageScreen.importerEtOuvrir(context),
             icon: const Icon(Icons.add_photo_alternate),
-            label: const Text('Importer une planche'),
+            label: const Text('Importer des planches'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Sélectionne une ou plusieurs planches d\'un même personnage (face, dos, '
+            'référence, planches de poses…) : elles sont exportées ensemble, '
+            'à la même échelle, dans un seul zip.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
           Card(
@@ -39,12 +44,13 @@ class HomeScreen extends StatelessWidget {
                 children: const [
                   Text('Pipeline', style: TextStyle(fontWeight: FontWeight.bold)),
                   SizedBox(height: 6),
-                  Text('1. Importe la planche (fond blanc ou gris uni, jamais vert ou rose).'),
+                  Text('1. Importe les planches du personnage (fond blanc ou gris uni, jamais vert ou rose).'),
                   Text('2. La grille est détectée ; ajuste les séparateurs au doigt si besoin.'),
                   Text('3. Détourage : tolérance, bord doux, décontamination du halo.'),
                   Text('4. Choisis le personnage et la planche : les noms de poses '
                       's\'appliquent automatiquement (convention EntityView.gd).'),
-                  Text('5. Exporte le zip et décompresse-le à la racine du dépôt Zimut.'),
+                  Text('5. Vérifie les contrôles (doublons, poses manquantes) et l\'aperçu des animations.'),
+                  Text('6. Exporte le zip du personnage et décompresse-le à la racine du dépôt Zimut.'),
                 ],
               ),
             ),

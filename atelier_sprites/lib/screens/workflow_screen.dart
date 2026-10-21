@@ -18,49 +18,71 @@ import '../core/traitement.dart';
 import '../data/catalog.dart';
 import '../export/atelier_export.dart';
 import '../models.dart';
+import '../projet.dart';
 import '../widgets/apercu_grille.dart';
 import '../widgets/damier.dart';
 import 'animation_screen.dart';
 
+/// Préparation d'une planche d'un projet personnage (grille, détourage,
+/// poses, export de cette planche seule).
 class WorkflowScreen extends StatefulWidget {
-  const WorkflowScreen({super.key});
+  final ProjetPersonnage projet;
+  final PlancheProjet planche;
+
+  const WorkflowScreen({super.key, required this.projet, required this.planche});
 
   @override
   State<WorkflowScreen> createState() => _WorkflowScreenState();
 }
 
 class _WorkflowScreenState extends State<WorkflowScreen> {
-  Uint8List? _octets;
-  String _nomFichier = '';
-  int _imageW = 0;
-  int _imageH = 0;
-  Grille _grille = Grille.uniforme(2, 2);
-  final OptionsTraitement _options = OptionsTraitement();
+  // L'état vit dans le projet : on y revient depuis l'écran Personnage.
+  PlancheProjet get _p => widget.planche;
+  Uint8List? get _octets => _p.octets;
+  String get _nomFichier => _p.nomFichier;
+  int get _imageW => _p.imageW;
+  int get _imageH => _p.imageH;
+  Grille get _grille => _p.grille;
+  set _grille(Grille g) => _p.grille = g;
+  OptionsTraitement get _options => widget.projet.options;
+  PersonnageCatalogue? get _perso => widget.projet.perso;
+  PlancheDef? get _planche => _p.planche;
+  set _planche(PlancheDef? d) => _p.planche = d;
+  int get _premiereCase => _p.premiereCase;
+  set _premiereCase(int v) => _p.premiereCase = v;
+  Set<int> get _exclues => _p.exclues;
+  Map<int, String> get _renommages => _p.renommages;
+  Map<String, Uint8List> get _vignettes => _p.vignettes;
+  set _vignettes(Map<String, Uint8List> v) => _p.vignettes = v;
+  Uint8List? get _apercuDetour => _p.apercuDetour;
+  set _apercuDetour(Uint8List? v) => _p.apercuDetour = v;
+  int get _pourcentageFond => _p.pourcentageFond;
+  set _pourcentageFond(int v) => _p.pourcentageFond = v;
+  List<Doublon> get _doublons => _p.doublons;
+  set _doublons(List<Doublon> v) => _p.doublons = v;
 
-  PersonnageCatalogue? _perso;
-  PlancheDef? _planche;
   String _groupeChoisi = '';
-  int _premiereCase = 1;
-
-  final Set<int> _exclues = <int>{};
-  final Map<int, String> _renommages = <int, String>{};
-  Map<String, Uint8List> _vignettes = <String, Uint8List>{};
-  List<Doublon> _doublons = const <Doublon>[];
-  Uint8List? _apercuDetour;
-  int _pourcentageFond = -1;
-
-  /// Cases normalisées pour l'aperçu des animations (clé = index de case),
-  /// calculées pour l'ancrage [_cacheAnimSol].
-  Map<int, Uint8List>? _cacheAnim;
-  bool? _cacheAnimSol;
-
   bool _occupe = false;
   int _etape = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _groupeChoisi = _perso?.groupe ?? '';
+  }
+
+  @override
+  void dispose() {
+    // Arrivé aux poses : la planche est considérée comme vérifiée.
+    if (_etape >= 2) _p.verifiee = true;
+    super.dispose();
+  }
 
   // --------------------------------------------------------------------------------------------
   // Import et grille
   // --------------------------------------------------------------------------------------------
 
+  /// Remplace l'image de cette planche (les autres planches ne bougent pas).
   Future<void> _importer() async {
     final resultat = await FilePicker.platform.pickFiles(
       type: FileType.image,
@@ -76,39 +98,40 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       return;
     }
     setState(() {
-      _octets = octets;
-      _nomFichier = fichier.name;
-      _imageW = source.width;
-      _imageH = source.height;
+      _p.octets = octets;
+      _p.nomFichier = fichier.name;
+      _p.imageW = source.width;
+      _p.imageH = source.height;
+      _p.verifiee = false;
       _exclues.clear();
       _renommages.clear();
       _invaliderApercus();
-      _apercuDetour = null;
       _pourcentageFond = -1;
       _premiereCase = 1;
       _grille = detecterGrille(source, tolerance: _options.tolerance);
       final presel = preselDepuisNomFichier(fichier.name);
-      _perso = presel.perso;
-      _planche = presel.planche;
-      _groupeChoisi = _perso?.groupe ?? '';
+      if (_perso == null && presel.perso != null) {
+        widget.projet.changerPerso(presel.perso!);
+        _groupeChoisi = presel.perso!.groupe;
+      }
+      if (presel.planche != null && presel.perso == _perso) _planche = presel.planche;
       if (_planche?.type == TypePlanche.objets) {
         _prefillerObjets();
       }
     });
   }
 
-  void _prefillerObjets() {
-    for (var i = 0; i < _grille.nbCases && i < mecanismes.length; i++) {
-      _renommages[i] = mecanismes[i].id;
-    }
-  }
+  void _prefillerObjets() => _p.prefillerObjets();
 
-  /// Les aperçus (vignettes, animations) ne correspondent plus aux réglages.
+  /// Les aperçus de cette planche ne correspondent plus aux réglages. Le
+  /// détourage est commun : les aperçus des autres planches sont aussi périmés.
   void _invaliderApercus() {
-    _vignettes = <String, Uint8List>{};
-    _doublons = const <Doublon>[];
-    _cacheAnim = null;
-    _cacheAnimSol = null;
+    for (final pl in widget.projet.planches) {
+      if (!identical(pl, _p)) pl.invaliderApercus();
+    }
+    final detour = _p.apercuDetour;
+    _p.invaliderApercus();
+    _p.apercuDetour = detour;
   }
 
   void _majGrille(Grille g) {
@@ -139,53 +162,11 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   // Nommage
   // --------------------------------------------------------------------------------------------
 
-  List<int> get _indicesInclus => <int>[
-        for (var i = 0; i < _grille.nbCases; i++)
-          if (!_exclues.contains(i)) i,
-      ];
-
-  String _nomPrevu(int index) {
-    final pl = _planche!;
-    if (pl.type == TypePlanche.objets) {
-      final renom = _renommages[index] ?? '';
-      return renom.isEmpty ? 'objet_${index + 1}' : renom;
-    }
-    final rang = _indicesInclus.indexOf(index);
-    final position = _premiereCase - 1 + rang;
-    if (position < 0 || position >= pl.suffixes.length) {
-      return nomFichierPour(
-        id: _perso!.id,
-        planche: pl,
-        suffix: '_${index + 1}',
-      );
-    }
-    return nomFichierPour(id: _perso!.id, planche: pl, suffix: pl.suffixes[position]);
-  }
-
-  String _libellePose(int index) {
-    final pl = _planche!;
-    if (pl.type == TypePlanche.objets) return 'objet';
-    final rang = _indicesInclus.indexOf(index);
-    final position = _premiereCase - 1 + rang;
-    if (position < 0 || position >= pl.libellesPoses.length) return 'case ${index + 1}';
-    return pl.libellesPoses[position];
-  }
-
-  /// Suffixe de pose de la case (ordre des cases incluses), `null` si inconnu.
-  String? _suffixeCase(int index) {
-    final pl = _planche;
-    if (pl == null || pl.type == TypePlanche.objets) return null;
-    final rang = _indicesInclus.indexOf(index);
-    final position = _premiereCase - 1 + rang;
-    if (rang < 0 || position < 0 || position >= pl.suffixes.length) return null;
-    return pl.suffixes[position];
-  }
-
-  String _nomFinal(int index) {
-    final renom = _renommages[index] ?? '';
-    if (renom.isNotEmpty) return renom.endsWith('.png') ? renom : '$renom.png';
-    return _nomPrevu(index);
-  }
+  List<int> get _indicesInclus => _p.indicesInclus;
+  String _nomPrevu(int index) => _p.nomPrevu(index, _perso!);
+  String _libellePose(int index) => _p.libellePose(index);
+  String? _suffixeCase(int index) => _p.suffixeCase(index);
+  String _nomFinal(int index) => _p.nomFinal(index, _perso!);
 
   String _nomZip() {
     final id = _perso?.id ?? 'planche';
@@ -208,7 +189,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
 
   void _selectionnerPersoInterne(PersonnageCatalogue p) {
     final planches = planchesPour(p);
-    _perso = p;
+    widget.projet.changerPerso(p);
     _planche = planches.contains(_planche) ? _planche : planches.first;
     _premiereCase = 1;
     _renommages.clear();
@@ -348,30 +329,26 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   }
 
   Future<Map<int, Uint8List>> _imagesAnimation(bool ancrageSol) async {
-    if (_cacheAnim != null && _cacheAnimSol == ancrageSol) return _cacheAnim!;
+    if (_p.cacheAnim != null && _p.cacheAnimSol == ancrageSol) return _p.cacheAnim!;
     final options = _options.copie()
       ..case512 = true
       ..ancrageSol = ancrageSol;
     final indices = <int>[for (var i = 0; i < _grille.nbCases; i++) i];
-    final demande = construireDemande(_octets!, _grille, options, indices, tailleVignette: 320);
+    final demande = construireDemande(
+      _octets!,
+      _grille,
+      options,
+      indices,
+      tailleVignette: 320,
+      ratioForce: widget.projet.ratioCommun,
+    );
     final resultat = await compute(traiterCases, demande);
     final images = <int, Uint8List>{
       for (final e in resultat.vignettes.entries) int.parse(e.key): e.value,
     };
-    _cacheAnim = images;
-    _cacheAnimSol = ancrageSol;
+    _p.cacheAnim = images;
+    _p.cacheAnimSol = ancrageSol;
     return images;
-  }
-
-  /// Chemins de `<id>_anim.txt` : à côté du repos de face du personnage
-  /// (là où EntityView.gd le cherche), quelle que soit la planche exportée.
-  List<String> _cheminsReglages(PersonnageCatalogue perso) {
-    final repos = planchesPour(perso).first;
-    if (repos.type == TypePlanche.objets) return const <String>[];
-    return [
-      for (final c in cheminsPour(perso: perso, planche: repos, nomFichier: '${perso.id}.png'))
-        '${c.substring(0, c.length - 4)}_anim.txt',
-    ];
   }
 
   Future<void> _ouvrirAnimations() async {
@@ -420,7 +397,13 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     }
     setState(() => _occupe = true);
     try {
-      final demande = construireDemande(_octets!, _grille, _options, inclus);
+      final demande = construireDemande(
+        _octets!,
+        _grille,
+        _options,
+        inclus,
+        ratioForce: widget.projet.ratioCommun,
+      );
       final resultat = await compute(traiterCases, demande);
       final fichiers = <FichierExport>[];
       for (final index in inclus) {
@@ -438,7 +421,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       final reglages = await MagasinReglages.lire(_perso!.id);
       if (!reglages.estDefaut) {
         final json = Uint8List.fromList(utf8.encode(reglages.versJson()));
-        for (final chemin in _cheminsReglages(_perso!)) {
+        for (final chemin in cheminsReglages(_perso!)) {
           fichiers.add(FichierExport(chemin, json));
         }
       }
@@ -496,7 +479,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Atelier Sprites')),
+      appBar: AppBar(title: Text(_nomFichier, overflow: TextOverflow.ellipsis)),
       body: AbsorbPointer(
         absorbing: _occupe,
         child: Stack(
@@ -952,7 +935,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
                     future: MagasinReglages.lire(_perso!.id),
                     builder: (context, snap) {
                       final r = snap.data;
-                      if (r == null || r.estDefaut || _cheminsReglages(_perso!).isEmpty) {
+                      if (r == null || r.estDefaut || cheminsReglages(_perso!).isEmpty) {
                         return const SizedBox.shrink();
                       }
                       return Padding(
@@ -991,7 +974,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
               ? null
               : _exporter,
           icon: const Icon(Icons.folder_zip),
-          label: const Text('Exporter pour Zimut (.zip)'),
+          label: const Text('Exporter cette planche seule (.zip)'),
         ),
         const SizedBox(height: 8),
         Text(
