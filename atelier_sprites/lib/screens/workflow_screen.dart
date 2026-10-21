@@ -1,6 +1,7 @@
 /// Workflow complet : importer → grille → détourage → nommage → export zip.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -13,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 import '../core/animations.dart';
 import '../core/decoupe.dart';
 import '../core/doublons.dart';
+import '../core/intensite.dart';
 import '../core/reglages_anim.dart';
 import '../core/traitement.dart';
 import '../data/catalog.dart';
@@ -20,6 +22,7 @@ import '../export/atelier_export.dart';
 import '../models.dart';
 import '../projet.dart';
 import '../widgets/apercu_grille.dart';
+import '../widgets/comparateur_detour.dart';
 import '../widgets/damier.dart';
 import 'animation_screen.dart';
 
@@ -54,8 +57,6 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   Map<int, String> get _renommages => _p.renommages;
   Map<String, Uint8List> get _vignettes => _p.vignettes;
   set _vignettes(Map<String, Uint8List> v) => _p.vignettes = v;
-  Uint8List? get _apercuDetour => _p.apercuDetour;
-  set _apercuDetour(Uint8List? v) => _p.apercuDetour = v;
   int get _pourcentageFond => _p.pourcentageFond;
   set _pourcentageFond(int v) => _p.pourcentageFond = v;
   List<Doublon> get _doublons => _p.doublons;
@@ -65,6 +66,15 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   bool _occupe = false;
   int _etape = 0;
 
+  // Aperçu du détourage en direct (recalculé après chaque réglage).
+  ApercuDetour? _apercu;
+  bool _calculApercu = false;
+  int _seqApercu = 0;
+  Timer? _attenteApercu;
+
+  /// Zone de l'aperçu : -1 = planche entière, sinon index de case (zoom).
+  int _zoneApercu = -1;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +83,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
 
   @override
   void dispose() {
+    _attenteApercu?.cancel();
     // Arrivé aux poses : la planche est considérée comme vérifiée.
     if (_etape >= 2) _p.verifiee = true;
     super.dispose();
@@ -99,6 +110,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     }
     setState(() {
       _p.octets = octets;
+      _apercu = null;
       _p.nomFichier = fichier.name;
       _p.imageW = source.width;
       _p.imageH = source.height;
@@ -137,6 +149,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   void _majGrille(Grille g) {
     setState(() {
       _grille = g;
+      _apercu = null;
       _invaliderApercus();
       _exclues.clear();
       _renommages.clear();
@@ -149,6 +162,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   void _majDimensions(int cols, int rows) {
     setState(() {
       _grille = Grille.uniforme(cols, rows);
+      _apercu = null;
       _invaliderApercus();
       _exclues.clear();
       _renommages.clear();
@@ -275,28 +289,45 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
 
   OptionsTraitement get _optionsApercu => _options.copie()..case512 = false;
 
-  Future<void> _previsualiserDetourage() async {
+  /// Relance l'aperçu du détourage après une courte pause (les curseurs
+  /// envoient beaucoup de valeurs) ; seul le dernier calcul est affiché.
+  void _planifierApercu({bool immediat = false}) {
     if (_octets == null) return;
-    setState(() => _occupe = true);
+    _attenteApercu?.cancel();
+    _attenteApercu = Timer(Duration(milliseconds: immediat ? 0 : 450), _calculerApercu);
+  }
+
+  Future<void> _calculerApercu() async {
+    if (_octets == null || !mounted) return;
+    final seq = ++_seqApercu;
+    setState(() => _calculApercu = true);
     try {
-      final demande = construireDemande(
-        _octets!,
-        Grille.uniforme(1, 1),
-        _optionsApercu,
-        <int>[0],
-        tailleVignette: 1400,
+      final zone = _zoneApercu < _grille.nbCases ? _zoneApercu : -1;
+      final demande = DemandeApercuDetour(
+        construireDemande(_octets!, _grille, _optionsApercu, const <int>[]),
+        caseIndex: zone,
+        tailleMax: zone < 0 ? 1100 : 700,
       );
-      final resultat = await compute(traiterCases, demande);
-      if (!mounted) return;
+      final resultat = await compute(apercuDetourage, demande);
+      if (!mounted || seq != _seqApercu) return;
       setState(() {
-        _apercuDetour = resultat.vignettes['0'];
+        _apercu = resultat;
         _pourcentageFond = resultat.pourcentageFond;
       });
     } catch (e) {
-      _message('Échec du détourage : $e');
+      if (seq == _seqApercu) _message('Échec du détourage : $e');
     } finally {
-      if (mounted) setState(() => _occupe = false);
+      if (mounted && seq == _seqApercu) setState(() => _calculApercu = false);
     }
+  }
+
+  /// Modifie un réglage de détourage : aperçus périmés, nouvel aperçu en direct.
+  void _majDetourage(VoidCallback changement) {
+    setState(() {
+      changement();
+      _invaliderApercus();
+    });
+    _planifierApercu();
   }
 
   Future<void> _genererVignettes() async {
@@ -453,6 +484,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           return;
         }
         setState(() => _etape = 1);
+        if (_apercu == null) _planifierApercu(immediat: true);
       case 1:
         setState(() => _etape = 2);
         _genererVignettes();
@@ -486,7 +518,10 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           children: [
             Stepper(
               currentStep: _etape,
-              onStepTapped: (i) => setState(() => _etape = i),
+              onStepTapped: (i) {
+                setState(() => _etape = i);
+                if (i == 1 && _apercu == null) _planifierApercu(immediat: true);
+              },
               physics: const ClampingScrollPhysics(),
               controlsBuilder: (context, details) => Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -621,115 +656,163 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   }
 
   Widget _etapeDetourage() {
+    final theme = Theme.of(context);
+    final niveau = niveauDe(_options);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SwitchListTile(
+          contentPadding: EdgeInsets.zero,
           title: const Text('Détourer le fond'),
           subtitle: const Text('Supprime le fond blanc/gris ; les zones claires enfermées dans le sprite sont conservées.'),
           value: _options.detourer,
-          onChanged: (v) => setState(() {
-            _options.detourer = v;
-            _apercuDetour = null;
-            _invaliderApercus();
-          }),
+          onChanged: (v) => _majDetourage(() => _options.detourer = v),
         ),
         if (_options.detourer) ...[
-          ListTile(
-            title: Text('Tolérance : ${_options.tolerance}'),
-            subtitle: Slider(
-              value: _options.tolerance.toDouble(),
-              min: 10,
-              max: 140,
-              divisions: 26,
-              label: '${_options.tolerance}',
-              onChanged: (v) => setState(() {
-                _options.tolerance = v.round();
-                _apercuDetour = null;
-                _invaliderApercus();
-              }),
-            ),
+          Text('Intensité', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 6),
+          SegmentedButton<int>(
+            segments: [
+              for (var i = 0; i < niveauxDetourage.length; i++)
+                ButtonSegment(value: i, label: Text(niveauxDetourage[i].libelle)),
+            ],
+            selected: niveau < 0 ? const <int>{} : {niveau},
+            emptySelectionAllowed: true,
+            showSelectedIcon: false,
+            onSelectionChanged: (sel) {
+              if (sel.isEmpty) return;
+              _majDetourage(() => appliquerNiveau(_options, sel.first));
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            niveau < 0 ? 'Réglage personnalisé (réglages fins ci-dessous).' : niveauxDetourage[niveau].aide,
+            style: theme.textTheme.bodySmall,
           ),
           ListTile(
-            title: Text('Bord doux : ${_options.douceur.toStringAsFixed(1)}'),
-            subtitle: Slider(
-              value: _options.douceur,
-              min: 0,
-              max: 3,
-              divisions: 12,
-              label: _options.douceur.toStringAsFixed(1),
-              onChanged: (v) => setState(() {
-                _options.douceur = v;
-                _apercuDetour = null;
-                _invaliderApercus();
-              }),
+            contentPadding: EdgeInsets.zero,
+            title: Text('Rognage du bord : ${_options.rognage > 0 ? '+' : ''}${_options.rognage} px'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Slider(
+                  value: _options.rognage.toDouble(),
+                  min: -3,
+                  max: 6,
+                  divisions: 9,
+                  label: '${_options.rognage}',
+                  onChanged: (v) => _majDetourage(() => _options.rognage = v.round()),
+                ),
+                Text('+ : grignote le liseré clair autour du sprite · − : rend du bord trop mangé',
+                    style: theme.textTheme.bodySmall),
+              ],
             ),
           ),
-          SwitchListTile(
-            title: const Text('Décontaminer le halo'),
-            subtitle: const Text('Re-pousse la couleur du bord hors du blanc du fond.'),
-            value: _options.decontaminer,
-            onChanged: (v) => setState(() {
-              _options.decontaminer = v;
-              _apercuDetour = null;
-              _invaliderApercus();
-            }),
-          ),
-          SwitchListTile(
-            title: const Text('Dérouter aussi les intérieurs'),
-            subtitle: const Text('Retire le fond enfermé entre les membres (bras, jambes) ; les petites zones claires (yeux, reflets) sont conservées.'),
-            value: _options.interieurs,
-            onChanged: (v) => setState(() {
-              _options.interieurs = v;
-              _apercuDetour = null;
-              _invaliderApercus();
-            }),
-          ),
-          if (_options.interieurs)
-            ListTile(
-              title: Text('Aire min. d’une poche : ${_options.aireMinInterieur} px'),
-              subtitle: Slider(
-                value: _options.aireMinInterieur.toDouble(),
-                min: 4,
-                max: 400,
-                divisions: 99,
-                label: '${_options.aireMinInterieur}',
-                onChanged: (v) => setState(() {
-                  _options.aireMinInterieur = v.round();
-                  _apercuDetour = null;
-                  _invaliderApercus();
-                }),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Réglages fins'),
+            subtitle: Text(
+              'Tolérance ${_options.tolerance} · bord doux ${_options.douceur.toStringAsFixed(1)}'
+              '${_options.decontaminer ? ' · anti-halo' : ''}${_options.interieurs ? ' · intérieurs' : ''}',
+              style: theme.textTheme.bodySmall,
+            ),
+            children: [
+              ListTile(
+                title: Text('Tolérance : ${_options.tolerance}'),
+                subtitle: Slider(
+                  value: _options.tolerance.toDouble(),
+                  min: 10,
+                  max: 140,
+                  divisions: 26,
+                  label: '${_options.tolerance}',
+                  onChanged: (v) => _majDetourage(() => _options.tolerance = v.round()),
+                ),
               ),
-            ),
-          const SizedBox(height: 8),
-          FilledButton.tonalIcon(
-            onPressed: _octets == null ? null : _previsualiserDetourage,
-            icon: const Icon(Icons.auto_fix_high),
-            label: const Text('Prévisualiser le détourage'),
+              ListTile(
+                title: Text('Bord doux : ${_options.douceur.toStringAsFixed(1)}'),
+                subtitle: Slider(
+                  value: _options.douceur,
+                  min: 0,
+                  max: 3,
+                  divisions: 12,
+                  label: _options.douceur.toStringAsFixed(1),
+                  onChanged: (v) => _majDetourage(() => _options.douceur = v),
+                ),
+              ),
+              SwitchListTile(
+                title: const Text('Décontaminer le halo'),
+                subtitle: const Text('Re-pousse la couleur du bord hors du blanc du fond.'),
+                value: _options.decontaminer,
+                onChanged: (v) => _majDetourage(() => _options.decontaminer = v),
+              ),
+              SwitchListTile(
+                title: const Text('Détourer aussi les intérieurs'),
+                subtitle: const Text('Retire le fond enfermé entre les membres (bras, jambes) ; les petites zones claires (yeux, reflets) sont conservées.'),
+                value: _options.interieurs,
+                onChanged: (v) => _majDetourage(() => _options.interieurs = v),
+              ),
+              if (_options.interieurs)
+                ListTile(
+                  title: Text('Aire min. d’une poche : ${_options.aireMinInterieur} px'),
+                  subtitle: Slider(
+                    value: _options.aireMinInterieur.toDouble(),
+                    min: 4,
+                    max: 400,
+                    divisions: 99,
+                    label: '${_options.aireMinInterieur}',
+                    onChanged: (v) => _majDetourage(() => _options.aireMinInterieur = v.round()),
+                  ),
+                ),
+            ],
           ),
-          if (_apercuDetour != null) ...[
-            const SizedBox(height: 12),
-            AspectRatio(
-              aspectRatio: _imageW / _imageH,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  const Damier(),
-                  Image.memory(_apercuDetour!, fit: BoxFit.contain, gaplessPlayback: true),
+        ],
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text('Aperçu', style: theme.textTheme.titleSmall),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButton<int>(
+                isExpanded: true,
+                value: _zoneApercu < _grille.nbCases ? _zoneApercu : -1,
+                items: [
+                  const DropdownMenuItem(value: -1, child: Text('Planche entière')),
+                  for (var i = 0; i < _grille.nbCases; i++)
+                    DropdownMenuItem(value: i, child: Text('Case ${i + 1} (zoom)')),
                 ],
+                onChanged: (v) {
+                  setState(() => _zoneApercu = v ?? -1);
+                  _planifierApercu(immediat: true);
+                },
               ),
             ),
           ],
-          if (_pourcentageFond >= 0) ...[
-            const SizedBox(height: 8),
-            Text('Fond retiré : $_pourcentageFond % de l\'image.'),
-            if (_pourcentageFond < 5)
-              const Text('⚠ Fond à peine détecté : augmente la tolérance ou vérifie le fond de la planche.',
-                  style: TextStyle(color: Colors.orange))
-            else if (_pourcentageFond > 92)
-              const Text('⚠ Presque tout a été supprimé : baisse la tolérance.',
-                  style: TextStyle(color: Colors.orange)),
-          ],
+        ),
+        const SizedBox(height: 6),
+        if (_apercu == null)
+          SizedBox(
+            height: 120,
+            child: Center(
+              child: _calculApercu
+                  ? const CircularProgressIndicator()
+                  : TextButton.icon(
+                      onPressed: _octets == null ? null : () => _planifierApercu(immediat: true),
+                      icon: const Icon(Icons.auto_fix_high),
+                      label: const Text('Calculer l\'aperçu'),
+                    ),
+            ),
+          )
+        else
+          ComparateurDetour(apercu: _apercu!, calcul: _calculApercu),
+        if (_options.detourer && _pourcentageFond >= 0) ...[
+          const SizedBox(height: 8),
+          Text('Fond retiré : $_pourcentageFond % de l\'image.'),
+          if (_pourcentageFond < 5)
+            const Text('⚠ Fond à peine détecté : augmente l\'intensité ou vérifie le fond de la planche.',
+                style: TextStyle(color: Colors.orange))
+          else if (_pourcentageFond > 92)
+            const Text('⚠ Presque tout a été supprimé : baisse l\'intensité.',
+                style: TextStyle(color: Colors.orange)),
         ],
       ],
     );

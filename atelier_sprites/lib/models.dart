@@ -78,6 +78,9 @@ class OptionsTraitement {
   /// Aire minimale (pixels) d'une poche intérieure pour être retirée.
   int aireMinInterieur = 24;
 
+  /// Rognage du bord en pixels : > 0 grignote le liseré, < 0 rend du bord.
+  int rognage = 0;
+
   /// Recadre chaque case dans un carré de 512 px (transparent).
   bool case512 = true;
 
@@ -95,6 +98,7 @@ class OptionsTraitement {
     ..decontaminer = decontaminer
     ..interieurs = interieurs
     ..aireMinInterieur = aireMinInterieur
+    ..rognage = rognage
     ..case512 = case512
     ..ancrageSol = ancrageSol
     ..margeSol = margeSol;
@@ -125,6 +129,7 @@ class DemandeCases {
   final bool decontaminer;
   final bool interieurs;
   final int aireMinInterieur;
+  final int rognage;
   final bool case512;
   final bool ancrageSol;
   final double margeSol;
@@ -150,6 +155,7 @@ class DemandeCases {
     required this.decontaminer,
     required this.interieurs,
     required this.aireMinInterieur,
+    this.rognage = 0,
     required this.case512,
     this.ancrageSol = false,
     this.margeSol = 0.06,

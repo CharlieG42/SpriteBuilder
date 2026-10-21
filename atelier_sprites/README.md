@@ -50,6 +50,14 @@ flutter run
    - **tolérance de couleur** réglable (fond estimé depuis les quatre coins) ;
    - **bord doux** (rampe d'alpha) et **décontamination du halo** (re-pousse la couleur
      du bord hors du blanc du fond) ;
+   - **intensité** en un geste (léger / normal / fort / très fort) : règle ensemble tolérance,
+     rognage et bord doux ; réglages fins repliables ;
+   - **rognage du bord** (−3 à +6 px) : + grignote le liseré clair laissé autour du sprite,
+     − rend un bord clair mangé par la tolérance (les pixels de fond pur restent transparents) ;
+   - **aperçu en direct**, recalculé après chaque réglage, sur la planche entière ou une case
+     zoomée : *Résultat* sur fond noir / magenta / blanc / herbe / damier (un liseré saute aux
+     yeux), *Avant/après* avec curseur de séparation, *Retiré* (zones supprimées en rouge sur
+     l'original) ; zoom au doigt avec pixels nets ;
    - indicateur de contrôle : pourcentage de fond retiré, alerte si < 5 % ou > 92 %.
 3. **Personnage & poses** — catalogue complet embarqué (10 nations : héros, 4 ennemis, boss ;
    12 familiers ; 10 mécanismes), **présélection automatique depuis le nom du fichier**

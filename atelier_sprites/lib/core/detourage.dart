@@ -25,7 +25,9 @@ class StatsDetourage {
 /// [tolerance] : distance de couleur (0-255) sous laquelle un pixel est
 /// considéré comme fond. [douceur] : largeur de la rampe d'alpha au bord du
 /// sprite. [decontaminer] : re-pousse la couleur du halo hors de la couleur
-/// du fond.
+/// du fond. [rognage] (px) : > 0 grignote le bord du sprite (liseré clair,
+/// halo) ; < 0 rend au sprite des pixels de fond qui le touchent (bord trop
+/// mangé).
 StatsDetourage detourer(
   img.Image src, {
   required int tolerance,
@@ -33,6 +35,7 @@ StatsDetourage detourer(
   required bool decontaminer,
   bool interieurs = true,
   int aireMinInterieur = 24,
+  int rognage = 0,
 }) {
   final w = src.width;
   final h = src.height;
@@ -141,6 +144,35 @@ StatsDetourage detourer(
     }
   }
 
+  // Rognage du bord : érosion (> 0) ou dilatation (< 0) du sprite, pixel par pixel.
+  // Pixels rendus au sprite par la dilatation : opacité selon leur écart au fond.
+  final rendus = Uint8List(rognage < 0 ? w * h : 0);
+  if (rognage != 0) {
+    final pas = rognage.abs().clamp(0, 12);
+    final front = Int32List(w * h);
+    for (var k = 0; k < pas; k++) {
+      var n = 0;
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          final i = y * w + x;
+          final fond = masque[i] != 0;
+          // Érosion : pixel du sprite touchant le fond. Dilatation : fond touchant le sprite.
+          if (rognage > 0 ? fond : !fond) continue;
+          final cible = rognage > 0;
+          final touche = (x > 0 && (masque[i - 1] != 0) == cible) ||
+              (x < w - 1 && (masque[i + 1] != 0) == cible) ||
+              (y > 0 && (masque[i - w] != 0) == cible) ||
+              (y < h - 1 && (masque[i + w] != 0) == cible);
+          if (touche) front[n++] = i;
+        }
+      }
+      for (var j = 0; j < n; j++) {
+        masque[front[j]] = rognage > 0 ? 3 : 0;
+        if (rognage < 0) rendus[front[j]] = 1;
+      }
+    }
+  }
+
   var nbFond = 0;
   for (var i = 0; i < w * h; i++) {
     if (masque[i] != 0) {
@@ -159,11 +191,12 @@ StatsDetourage detourer(
     for (var x = 0; x < w; x++) {
       final i = y * w + x;
       if (masque[i] != 0) continue;
+      final rendu = rendus.isNotEmpty && rendus[i] == 1;
       final voisinFond = (x > 0 && masque[i - 1] != 0) ||
           (x < w - 1 && masque[i + 1] != 0) ||
           (y > 0 && masque[i - w] != 0) ||
           (y < h - 1 && masque[i + w] != 0);
-      if (!voisinFond) continue;
+      if (!voisinFond && !rendu) continue;
 
       final p = src.getPixel(x, y);
       final r = p.r.toInt();
@@ -179,14 +212,22 @@ StatsDetourage detourer(
       final rampe = (d * 255 / limite).round();
       // Entre le seuil de fond et la limite : alpha progressif.
       var a = 255;
-      if (d2 > seuilBas2) {
+      if (rendu && d2 <= seuilBas2) {
+        // Pixel de fond rendu : transparent s'il a la couleur du fond, de plus
+        // en plus opaque à mesure qu'il s'en écarte (pas d'anneau blanc).
+        a = (d * 255 / math.max(1, tolerance)).round().clamp(0, 255);
+        if (a < 8) {
+          src.setPixelRgba(x, y, 0, 0, 0, 0);
+          continue;
+        }
+      } else if (d2 > seuilBas2) {
         final auDela = d - tolerance;
         a = ((auDela * 255 / marge).round()).clamp(24, 255);
       }
       var rr = r;
       var gg = g;
       var bb2 = b;
-      if (decontaminer && a > 24 && a < 255) {
+      if (decontaminer && a > 8 && a < 255) {
         // Décontamination : re-pousse la couleur hors du fond (anti-halo).
         final k = 255 / a;
         rr = (br + (r - br) * k).round().clamp(0, 255);
