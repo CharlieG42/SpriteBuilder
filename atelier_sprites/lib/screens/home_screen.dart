@@ -17,6 +17,13 @@ class HomeScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: Image.asset('assets/icone/icone.png', width: 96, height: 96, filterQuality: FilterQuality.medium),
+            ),
+          ),
+          const SizedBox(height: 12),
           Text(
             'Transforme une planche de sprites générée par IA en PNG prêts '
             'pour le jeu : détourage, découpe, nommage des poses, export zip.',
