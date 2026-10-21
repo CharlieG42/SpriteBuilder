@@ -32,8 +32,7 @@ List<String> cheminsPour({
 }) {
   final chemins = <String>['$racineAssets/${perso.dossier}/$nomFichier'];
   if (perso.grand && perso.dossier == 'players') {
-    final reposFace = planche.type == TypePlanche.grandRepos &&
-        nomFichier == '${perso.id}.png';
+    final reposFace = nomFichier == '${perso.id}.png';
     if (reposFace) {
       chemins.add('$racineAssets/nations/heros/${perso.id}.png');
     } else {

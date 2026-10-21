@@ -1,6 +1,7 @@
 import 'package:atelier_sprites/core/animations.dart';
 import 'package:atelier_sprites/core/decoupe.dart';
 import 'package:atelier_sprites/core/detourage.dart';
+import 'package:atelier_sprites/core/doublons.dart';
 import 'package:atelier_sprites/core/gif.dart';
 import 'package:atelier_sprites/core/reglages_anim.dart';
 import 'package:atelier_sprites/core/traitement.dart';
@@ -11,28 +12,48 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
 void main() {
-  group('noms de fichiers (EntityView.gd V34)', () {
-    test('héros/boss — repos et sorts, face', () {
+  group('noms de fichiers (EntityView.gd V34, planches V36)', () {
+    test('fiche de référence : repos de face et de dos', () {
       final pl = planchesGrand[0];
-      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: ''), 'assassin.png');
-      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: '_idle_2'), 'assassin_idle_2.png');
-      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: '_cast_3'), 'assassin_cast_3.png');
+      expect(pl.type, TypePlanche.reference);
+      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: pl.suffixes[0]), 'assassin.png');
+      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: pl.suffixes[1]), 'assassin_back.png');
     });
 
-    test('héros/boss — attaques, dos', () {
+    test('héros/boss — face 3 : attaques 5-6 et sorts', () {
       final pl = planchesGrand[3];
-      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: '_attack'), 'assassin_back_attack.png');
-      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: '_attack_8'), 'assassin_back_attack_8.png');
+      expect(pl.cle, 'face_3');
+      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: pl.suffixes[1]), 'assassin_attack_6.png');
+      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: pl.suffixes[3]), 'assassin_cast_3.png');
+    });
+
+    test('héros/boss — dos 2', () {
+      final pl = planchesGrand[5];
+      expect(pl.vue, Vue.dos);
+      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: pl.suffixes[0]), 'assassin_back_attack_2.png');
+      expect(nomFichierPour(id: 'assassin', planche: pl, suffix: pl.suffixes[3]), 'assassin_back_idle_2.png');
     });
 
     test('ennemis/familiers — dos', () {
-      final pl = planchesPetit[1];
-      expect(nomFichierPour(id: 'liche', planche: pl, suffix: ''), 'liche_back.png');
+      final pl = planchesPetit[2];
+      expect(nomFichierPour(id: 'liche', planche: pl, suffix: '_walk'), 'liche_back_walk.png');
       expect(nomFichierPour(id: 'liche', planche: pl, suffix: '_cast'), 'liche_back_cast.png');
     });
 
     test('objets — une seule pose', () {
       expect(nomFichierPour(id: 'balise', planche: plancheObjets, suffix: ''), 'balise.png');
+    });
+
+    test('aucune pose en double dans les planches d\'un personnage', () {
+      for (final planches in [planchesGrand, planchesPetit]) {
+        final noms = <String>{};
+        for (final pl in planches) {
+          expect(pl.suffixes.length, pl.type == TypePlanche.reference ? 2 : 4);
+          for (final s in pl.suffixes) {
+            expect(noms.add(nomFichierPour(id: 'x', planche: pl, suffix: s)), isTrue);
+          }
+        }
+      }
     });
   });
 
@@ -41,29 +62,26 @@ void main() {
       expect(catalogueComplet().length, 82);
     });
 
-    test('planches : 4 pour un héros, 2 pour un ennemi, 1 pour un objet', () {
+    test('planches : 6 pour un héros, 3 pour un ennemi, 1 pour un objet', () {
       final heros = catalogueComplet().firstWhere((p) => p.id == 'tank');
-      expect(planchesPour(heros).length, 4);
+      expect(planchesPour(heros).length, 6);
       final ennemi = catalogueComplet().firstWhere((p) => p.id == 'liche');
-      expect(planchesPour(ennemi).length, 2);
+      expect(planchesPour(ennemi).length, 3);
       final objet = catalogueComplet().firstWhere((p) => p.id == 'bombe');
       expect(planchesPour(objet).length, 1);
       expect(planchesPour(objet).first.type, TypePlanche.objets);
     });
 
-    test('présélection complète', () {
-      final presel = preselDepuisNomFichier('assassin_dos_attaques.png');
-      expect(presel.perso?.id, 'assassin');
-      expect(presel.planche?.vue, Vue.dos);
-      expect(presel.planche?.type, TypePlanche.grandAttaques);
-
-      final preselFace = preselDepuisNomFichier('liche_back.png');
-      expect(preselFace.perso?.id, 'liche');
-      expect(preselFace.planche?.vue, Vue.dos);
-      expect(preselFace.planche?.type, TypePlanche.petitTout);
-
-      final preselObjet = preselDepuisNomFichier('tourelle.png');
-      expect(preselObjet.planche?.type, TypePlanche.objets);
+    test('présélection depuis le nom du fichier', () {
+      expect(preselDepuisNomFichier('assassin_dos_2.png').planche?.cle, 'dos_2');
+      expect(preselDepuisNomFichier('assassin_face3.png').planche?.cle, 'face_3');
+      expect(preselDepuisNomFichier('assassin_attaques.png').planche?.cle, 'face_2');
+      expect(preselDepuisNomFichier('assassin_ref.png').planche?.type, TypePlanche.reference);
+      expect(preselDepuisNomFichier('assassin.png').planche?.type, TypePlanche.reference);
+      final liche = preselDepuisNomFichier('liche_back.png');
+      expect(liche.perso?.id, 'liche');
+      expect(liche.planche?.cle, 'dos_1');
+      expect(preselDepuisNomFichier('tourelle.png').planche?.type, TypePlanche.objets);
     });
   });
 
@@ -246,17 +264,16 @@ void main() {
       expect(familleDuSuffixe('_attack_8'), FamilleAnim.attaque);
     });
 
-    test('planche héros repos : repos, marche, sort + toutes les cases', () {
-      final pl = planchesGrand[0];
+    test('planche héros face 1 : repos, marche, sort + toutes les cases', () {
+      final pl = planchesGrand[1];
       final anims = animationsPour({
         for (var i = 0; i < pl.suffixes.length; i++) i: pl.suffixes[i],
       });
       expect(anims.map((a) => a.libelle).toList(), ['Repos', 'Marche', 'Sort', 'Toutes les cases']);
-      expect(anims[0].cases, [0, 1, 2]);
-      expect(anims[0].allerRetour, isTrue);
-      expect(anims[1].cases, [3, 4]);
-      expect(anims[2].cases, [5, 6, 7]);
-      expect(anims.last.cases.length, 8);
+      expect(anims[0].cases, [0]);
+      expect(anims[1].cases, [1, 2]);
+      expect(anims[2].cases, [3]);
+      expect(anims.last.cases.length, 4);
     });
 
     test('objets : seulement « toutes les cases »', () {
@@ -314,6 +331,34 @@ void main() {
       // sort : saut à 0,12 s
       expect(poseProcedurale(r, FamilleAnim.sort, 0.12).dy, lessThan(-10));
       expect(poseProcedurale(r, FamilleAnim.repos, 1.0).dx, 0);
+    });
+  });
+
+  group('doublons (V36)', () {
+    img.Image pose(int bras) {
+      final c = img.Image(width: 120, height: 160, numChannels: 4);
+      img.fillRect(c, x1: 45, y1: 20, x2: 75, y2: 150, color: img.ColorRgba8(60, 90, 200, 255));
+      img.fillRect(c, x1: 75, y1: 60 - bras, x2: 110, y2: 75 - bras, color: img.ColorRgba8(200, 60, 60, 255));
+      return c;
+    }
+
+    test('deux poses identiques sont signalées, deux poses différentes non', () {
+      final a = img.encodePng(pose(0));
+      final b = img.encodePng(pose(0));
+      final c = img.encodePng(pose(45));
+      final d = detecterDoublons({0: a, 1: b, 2: c});
+      expect(d.length, 1);
+      expect(d.single.a, 0);
+      expect(d.single.b, 1);
+      expect(d.single.identique, isTrue);
+      expect(casesAExclure(d), {1});
+    });
+
+    test('décalage dans la case : toujours un doublon (recadrage sur le sprite)', () {
+      final decale = img.Image(width: 160, height: 200, numChannels: 4);
+      img.compositeImage(decale, pose(0), dstX: 30, dstY: 25);
+      final d = detecterDoublons({0: img.encodePng(pose(0)), 1: img.encodePng(decale)});
+      expect(d.single.identique, isTrue);
     });
   });
 }

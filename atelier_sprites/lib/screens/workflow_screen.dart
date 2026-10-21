@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/animations.dart';
 import '../core/decoupe.dart';
+import '../core/doublons.dart';
 import '../core/reglages_anim.dart';
 import '../core/traitement.dart';
 import '../data/catalog.dart';
@@ -33,7 +34,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   String _nomFichier = '';
   int _imageW = 0;
   int _imageH = 0;
-  Grille _grille = Grille.uniforme(4, 2);
+  Grille _grille = Grille.uniforme(2, 2);
   final OptionsTraitement _options = OptionsTraitement();
 
   PersonnageCatalogue? _perso;
@@ -44,6 +45,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   final Set<int> _exclues = <int>{};
   final Map<int, String> _renommages = <int, String>{};
   Map<String, Uint8List> _vignettes = <String, Uint8List>{};
+  List<Doublon> _doublons = const <Doublon>[];
   Uint8List? _apercuDetour;
   int _pourcentageFond = -1;
 
@@ -104,6 +106,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   /// Les aperçus (vignettes, animations) ne correspondent plus aux réglages.
   void _invaliderApercus() {
     _vignettes = <String, Uint8List>{};
+    _doublons = const <Doublon>[];
     _cacheAnim = null;
     _cacheAnimSol = null;
   }
@@ -187,13 +190,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
   String _nomZip() {
     final id = _perso?.id ?? 'planche';
     final pl = _planche;
-    final cle = switch (pl?.type) {
-      TypePlanche.grandRepos => (pl?.vue == Vue.dos) ? 'dos_repos' : 'face_repos',
-      TypePlanche.grandAttaques => (pl?.vue == Vue.dos) ? 'dos_attaques' : 'face_attaques',
-      TypePlanche.petitTout => (pl?.vue == Vue.dos) ? 'dos' : 'face',
-      TypePlanche.objets => 'objets',
-      null => 'planche',
-    };
+    final cle = pl?.cle ?? 'planche';
     return 'zimut_sprites_${id}_$cle.zip';
   }
 
@@ -334,10 +331,14 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
         tailleVignette: 160,
       );
       final resultat = await compute(traiterCases, demande);
+      final doublons = await compute(detecterDoublons, <int, Uint8List>{
+        for (final e in resultat.vignettes.entries) int.parse(e.key): e.value,
+      });
       if (!mounted) return;
       setState(() {
         _vignettes = resultat.vignettes;
         _pourcentageFond = resultat.pourcentageFond;
+        _doublons = doublons;
       });
     } catch (e) {
       _message('Échec de la découpe : $e');
@@ -793,7 +794,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
             value: _premiereCase,
             decoration: const InputDecoration(
               labelText: 'Première case de la planche',
-              helperText: 'Mets 5 si tu importes la moitié droite d\'une planche 4×2.',
+              helperText: 'Si la planche a été coupée en deux, numéro de la première pose importée.',
             ),
             items: [
               for (var i = 1; i <= _planche!.nbCases; i++) DropdownMenuItem(value: i, child: Text('Case $i')),
@@ -817,6 +818,39 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Text('Aperçus pas encore générés…'),
+          ),
+        if (_doublons.isNotEmpty)
+          Card(
+            margin: const EdgeInsets.only(top: 8),
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _doublons.any((d) => d.identique) ? 'Poses en double détectées' : 'Poses très proches',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  for (final d in _doublons.take(8))
+                    Text('• Cases ${d.a + 1} et ${d.b + 1} : ${d.identique ? 'identiques' : 'très proches'} '
+                        '(écart ${(d.distance * 100).toStringAsFixed(1)} %)'),
+                  if (_doublons.length > 8) Text('… et ${_doublons.length - 8} autres paires'),
+                  const SizedBox(height: 4),
+                  const Text('Le mieux : régénérer la planche en insistant sur des poses différentes.'),
+                  if (_doublons.any((d) => d.identique))
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        icon: const Icon(Icons.filter_alt_off),
+                        label: const Text('Exclure les doublons'),
+                        onPressed: () => setState(() => _exclues.addAll(casesAExclure(_doublons))),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         if (_vignettes.isNotEmpty)
           Card(

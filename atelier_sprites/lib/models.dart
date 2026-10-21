@@ -7,8 +7,10 @@ import 'dart:typed_data';
 /// directions vers la gauche : face + dos couvrent la grille entière.
 enum Vue { face, dos }
 
-/// Type de planche (convention de `prompts_sprites/generer_prompts.py`).
-enum TypePlanche { grandRepos, grandAttaques, petitTout, objets }
+/// Type de planche (convention de `prompts_sprites/generer_prompts.py`, V36) :
+/// fiche de référence (repos de face + repos de dos), planche de 4 poses
+/// (grille 2 × 2, une seule vue), objets fixes.
+enum TypePlanche { reference, poses, objets }
 
 /// Entrée du catalogue : héros, ennemi, boss, familier ou objet de mécanisme.
 class PersonnageCatalogue {
@@ -16,7 +18,8 @@ class PersonnageCatalogue {
   final String libelle;
   final String id;
 
-  /// Héros ou boss : planches « repos/sorts » et « attaques » séparées (4 planches).
+  /// Héros ou boss : 6 planches (référence + 5 planches de 4 poses) ;
+  /// sinon 3 planches (référence + face + dos).
   final bool grand;
 
   /// Dossier relatif sous `prototype/zimut/assets/sprites/`.
@@ -36,6 +39,8 @@ class PersonnageCatalogue {
 
 /// Définition d'une planche : vue + suffixes de fichiers dans l'ordre des cases.
 class PlancheDef {
+  /// Clé courte (nom du zip, présélection) : `ref`, `face_1`, `dos_2`, `objets`…
+  final String cle;
   final String libelle;
   final Vue vue;
   final TypePlanche type;
@@ -43,6 +48,7 @@ class PlancheDef {
   final List<String> libellesPoses;
 
   const PlancheDef({
+    required this.cle,
     required this.libelle,
     required this.vue,
     required this.type,
