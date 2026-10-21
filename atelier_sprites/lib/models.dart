@@ -123,6 +123,10 @@ class DemandeCases {
   final bool ancrageSol;
   final double margeSol;
 
+  /// Échelle imposée dans le carré 512 (> 0), commune à plusieurs planches ;
+  /// 0 : calculée sur les cases de cette planche.
+  final double ratioForce;
+
   /// Si > 0, la case est réduite pour tenir dans ce carré (aperçus rapides) ;
   /// avec [case512], c'est le carré normalisé qui est réduit à cette taille.
   final int tailleVignette;
@@ -143,6 +147,7 @@ class DemandeCases {
     required this.case512,
     this.ancrageSol = false,
     this.margeSol = 0.06,
+    this.ratioForce = 0,
     this.tailleVignette = 0,
   });
 }

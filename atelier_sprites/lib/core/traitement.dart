@@ -42,9 +42,9 @@ ResultatCases traiterCases(DemandeCases d) {
 
   // Échelle commune à toutes les cases : une pose ne doit pas être réduite
   // davantage que sa voisine (sinon le personnage « pulse » en animation).
-  final ratio = d.case512
-      ? ratioCommun(planche, grille, d.indices, coteCarre)
-      : 1.0;
+  final ratio = !d.case512
+      ? 1.0
+      : (d.ratioForce > 0 ? d.ratioForce : ratioCommun(planche, grille, d.indices, coteCarre));
 
   final vignettes = <String, Uint8List>{};
   for (final i in d.indices) {
@@ -76,6 +76,7 @@ DemandeCases construireDemande(
   OptionsTraitement options,
   List<int> indices, {
   int tailleVignette = 0,
+  double ratioForce = 0,
 }) {
   return DemandeCases(
     octets: octets,
@@ -93,6 +94,25 @@ DemandeCases construireDemande(
     case512: options.case512,
     ancrageSol: options.ancrageSol,
     margeSol: options.margeSol,
+    ratioForce: ratioForce,
     tailleVignette: tailleVignette,
   );
+}
+
+/// Dimensions et grille détectée d'une planche importée (prévu pour `compute()`).
+class AnalysePlanche {
+  final int largeur;
+  final int hauteur;
+  final int cols;
+  final int rows;
+
+  const AnalysePlanche(this.largeur, this.hauteur, this.cols, this.rows);
+}
+
+/// Décode [octets] et détecte la grille ; `null` si l'image est illisible.
+AnalysePlanche? analyserPlanche(Uint8List octets) {
+  final source = img.decodeImage(octets);
+  if (source == null) return null;
+  final g = detecterGrille(source, tolerance: 45);
+  return AnalysePlanche(source.width, source.height, g.cols, g.rows);
 }
