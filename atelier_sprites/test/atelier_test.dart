@@ -169,6 +169,23 @@ void main() {
     });
   });
 
+  group('détourage doux', () {
+    test('une zone claire enfermée (cheveux blancs) n\'est plus prise pour du fond', () {
+      final im = img.Image(width: 40, height: 40, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 5, y1: 5, x2: 34, y2: 34, color: img.ColorRgb8(60, 90, 160));
+      // Zone claire (≈ 12 de l'écart au blanc par canal... 226 vs 255 : écart 29) de 6×6 px.
+      img.fillRect(im, x1: 15, y1: 15, x2: 20, y2: 20, color: img.ColorRgb8(226, 226, 226));
+      final doux = im.clone();
+      detourer(doux, tolerance: 40, douceur: 1.0, decontaminer: false, aireMinInterieur: 4);
+      expect(doux.getPixel(17, 17).a.toInt(), 255, reason: 'zone claire conservée');
+      // Un vrai fond enfermé part toujours.
+      img.fillRect(im, x1: 25, y1: 25, x2: 30, y2: 30, color: img.ColorRgb8(255, 255, 255));
+      detourer(im, tolerance: 40, douceur: 1.0, decontaminer: false, aireMinInterieur: 4);
+      expect(im.getPixel(27, 27).a.toInt(), 0, reason: 'fond enfermé retiré');
+    });
+  });
+
   group('découpe', () {
     test('extraction des cases d\'une grille 4×2', () {
       final im = img.Image(width: 40, height: 20, numChannels: 4);
@@ -502,11 +519,15 @@ void main() {
 
     test('niveaux d\'intensité : Normal = défauts, reconnaissance du niveau', () {
       final o = OptionsTraitement();
-      expect(niveauDe(o), 1);
-      appliquerNiveau(o, 3);
+      expect(niveauDe(o), 2);
+      appliquerNiveau(o, 4);
       expect(o.tolerance, 85);
       expect(o.rognage, 2);
-      expect(niveauDe(o), 3);
+      expect(niveauDe(o), 4);
+      appliquerNiveau(o, 0);
+      expect(o.interieurs, isFalse);
+      expect(niveauDe(o), 0);
+      appliquerNiveau(o, 4);
       o.tolerance = 50;
       expect(niveauDe(o), -1);
       expect(o.copie().rognage, 2);

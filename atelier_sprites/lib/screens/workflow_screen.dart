@@ -671,18 +671,16 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
         if (_options.detourer) ...[
           Text('Intensité', style: theme.textTheme.titleSmall),
           const SizedBox(height: 6),
-          SegmentedButton<int>(
-            segments: [
+          Wrap(
+            spacing: 6,
+            children: [
               for (var i = 0; i < niveauxDetourage.length; i++)
-                ButtonSegment(value: i, label: Text(niveauxDetourage[i].libelle)),
+                ChoiceChip(
+                  label: Text(niveauxDetourage[i].libelle),
+                  selected: i == niveau,
+                  onSelected: (_) => _majDetourage(() => appliquerNiveau(_options, i)),
+                ),
             ],
-            selected: niveau < 0 ? const <int>{} : {niveau},
-            emptySelectionAllowed: true,
-            showSelectedIcon: false,
-            onSelectionChanged: (sel) {
-              if (sel.isEmpty) return;
-              _majDetourage(() => appliquerNiveau(_options, sel.first));
-            },
           ),
           const SizedBox(height: 4),
           Text(
@@ -721,9 +719,9 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
                 title: Text('Tolérance : ${_options.tolerance}'),
                 subtitle: Slider(
                   value: _options.tolerance.toDouble(),
-                  min: 10,
+                  min: 5,
                   max: 140,
-                  divisions: 26,
+                  divisions: 27,
                   label: '${_options.tolerance}',
                   onChanged: (v) => _majDetourage(() => _options.tolerance = v.round()),
                 ),
