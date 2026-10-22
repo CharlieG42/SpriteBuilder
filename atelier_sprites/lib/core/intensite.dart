@@ -10,12 +10,16 @@ class NiveauDetourage {
   final int tolerance;
   final int rognage;
   final double douceur;
+  final bool interieurs;
 
-  const NiveauDetourage(this.libelle, this.aide, this.tolerance, this.rognage, this.douceur);
+  const NiveauDetourage(this.libelle, this.aide, this.tolerance, this.rognage, this.douceur,
+      {this.interieurs = true});
 }
 
 const List<NiveauDetourage> niveauxDetourage = [
-  NiveauDetourage('Léger', 'Garde un peu de bord : sprites clairs, contours fins.', 30, -1, 1.5),
+  NiveauDetourage('Très doux', 'Persos très clairs (cheveux, tenue blancs) : ne retire que le fond évident, rend du bord.', 10, -2, 2.0,
+      interieurs: false),
+  NiveauDetourage('Doux', 'Persos clairs : garde les zones pâles et les contours fins.', 20, -1, 1.5),
   NiveauDetourage('Normal', 'Réglage par défaut.', 45, 0, 1.0),
   NiveauDetourage('Fort', 'Retire le liseré clair autour du sprite.', 65, 1, 0.75),
   NiveauDetourage('Très fort', 'Halo épais ou fond irrégulier ; vérifie les zones claires.', 85, 2, 0.5),
@@ -25,7 +29,7 @@ const List<NiveauDetourage> niveauxDetourage = [
 int niveauDe(OptionsTraitement o) {
   for (var i = 0; i < niveauxDetourage.length; i++) {
     final n = niveauxDetourage[i];
-    if (o.tolerance == n.tolerance && o.rognage == n.rognage && (o.douceur - n.douceur).abs() < 1e-9) {
+    if (o.tolerance == n.tolerance && o.rognage == n.rognage && o.interieurs == n.interieurs && (o.douceur - n.douceur).abs() < 1e-9) {
       return i;
     }
   }
@@ -37,5 +41,6 @@ void appliquerNiveau(OptionsTraitement o, int i) {
   o
     ..tolerance = n.tolerance
     ..rognage = n.rognage
-    ..douceur = n.douceur;
+    ..douceur = n.douceur
+    ..interieurs = n.interieurs;
 }

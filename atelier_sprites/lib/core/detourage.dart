@@ -102,12 +102,23 @@ StatsDetourage detourer(
     if (y < h - 1) essayer(i + w);
   }
 
-  // Poches de fond enfermées dans le sprite (entre les membres).
+  // Poches de fond enfermées dans le sprite (entre les membres). Critère plus
+  // strict que pour le bord (moitié de la tolérance) : seul un vrai fond enfermé
+  // part, pas les zones claires du personnage (cheveux blancs, visage, tenue).
+  final tPoche2 = (tolerance * 0.5) * (tolerance * 0.5) * 3;
+  bool estFondPoche(int i) {
+    final p = src.getPixel(i % w, i ~/ w);
+    final dr = p.r.toInt() - br;
+    final dg = p.g.toInt() - bg;
+    final db = p.b.toInt() - bb;
+    return dr * dr + dg * dg + db * db <= tPoche2;
+  }
+
   if (interieurs) {
     final visites = Uint8List(w * h);
     for (var i = 0; i < w * h; i++) {
       if (masque[i] != 0 || visites[i] == 1) continue;
-      if (!estFond(i)) {
+      if (!estFondPoche(i)) {
         visites[i] = 1;
         continue;
       }
@@ -119,19 +130,19 @@ StatsDetourage detourer(
         final j = file[pocheTete++];
         final x = j % w;
         final y = j ~/ w;
-        if (x > 0 && visites[j - 1] == 0 && masque[j - 1] == 0 && estFond(j - 1)) {
+        if (x > 0 && visites[j - 1] == 0 && masque[j - 1] == 0 && estFondPoche(j - 1)) {
           visites[j - 1] = 1;
           file[pocheQueue++] = j - 1;
         }
-        if (x < w - 1 && visites[j + 1] == 0 && masque[j + 1] == 0 && estFond(j + 1)) {
+        if (x < w - 1 && visites[j + 1] == 0 && masque[j + 1] == 0 && estFondPoche(j + 1)) {
           visites[j + 1] = 1;
           file[pocheQueue++] = j + 1;
         }
-        if (y > 0 && visites[j - w] == 0 && masque[j - w] == 0 && estFond(j - w)) {
+        if (y > 0 && visites[j - w] == 0 && masque[j - w] == 0 && estFondPoche(j - w)) {
           visites[j - w] = 1;
           file[pocheQueue++] = j - w;
         }
-        if (y < h - 1 && visites[j + w] == 0 && masque[j + w] == 0 && estFond(j + w)) {
+        if (y < h - 1 && visites[j + w] == 0 && masque[j + w] == 0 && estFondPoche(j + w)) {
           visites[j + w] = 1;
           file[pocheQueue++] = j + w;
         }
