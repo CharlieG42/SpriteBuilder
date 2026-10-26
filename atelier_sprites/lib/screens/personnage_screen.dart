@@ -249,7 +249,7 @@ class _PersonnageScreenState extends State<PersonnageScreen> {
         final indices = <int>[for (var i = 0; i < pl.grille.nbCases; i++) i];
         final res = await compute(
           traiterCases,
-          construireDemande(pl.octets, pl.grille, options, indices, tailleVignette: 320, ratioForce: ratio),
+          construireDemande(pl.octets, pl.grille, options, indices, tailleVignette: 320, ratioForce: ratio, forces: pl.forces),
         );
         pl.cacheAnim = {for (final e in res.vignettes.entries) int.parse(e.key): e.value};
         pl.cacheAnimSol = ancrageSol;
@@ -284,7 +284,7 @@ class _PersonnageScreenState extends State<PersonnageScreen> {
         final inclus = pl.indicesInclus;
         final res = await compute(
           traiterCases,
-          construireDemande(pl.octets, pl.grille, _projet.options, inclus, ratioForce: ratio),
+          construireDemande(pl.octets, pl.grille, _projet.options, inclus, ratioForce: ratio, forces: pl.forces),
         );
         for (final i in inclus) {
           final png = res.vignettes[i.toString()];

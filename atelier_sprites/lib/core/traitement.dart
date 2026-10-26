@@ -30,8 +30,11 @@ ResultatCases traiterCases(DemandeCases d) {
       interieurs: d.interieurs,
       aireMinInterieur: d.aireMinInterieur,
       rognage: d.rognage,
+      forces: d.forces,
     );
     pourcentageFond = stats.pourcentageFond;
+  } else if (d.forces != null) {
+    effacerForces(planche, d.forces!);
   }
 
   final grille = Grille.personnalisee(
@@ -70,6 +73,14 @@ ResultatCases traiterCases(DemandeCases d) {
   return ResultatCases(vignettes, pourcentageFond);
 }
 
+/// Sans détourage automatique, les pixels supprimés à la main restent supprimés.
+void effacerForces(img.Image image, Uint8List forces) {
+  final w = image.width;
+  for (var i = 0; i < forces.length && i < w * image.height; i++) {
+    if (forces[i] == 1) image.setPixelRgba(i % w, i ~/ w, 0, 0, 0, 0);
+  }
+}
+
 /// Convertit des options UI en demande pour l'isolate.
 DemandeCases construireDemande(
   Uint8List octets,
@@ -78,6 +89,7 @@ DemandeCases construireDemande(
   List<int> indices, {
   int tailleVignette = 0,
   double ratioForce = 0,
+  Uint8List? forces,
 }) {
   return DemandeCases(
     octets: octets,
@@ -98,6 +110,7 @@ DemandeCases construireDemande(
     margeSol: options.margeSol,
     ratioForce: ratioForce,
     tailleVignette: tailleVignette,
+    forces: forces,
   );
 }
 
@@ -166,7 +179,10 @@ ApercuDetour apercuDetourage(DemandeApercuDetour a) {
       interieurs: d.interieurs,
       aireMinInterieur: d.aireMinInterieur,
       rognage: d.rognage,
+      forces: d.forces,
     ).pourcentageFond;
+  } else if (d.forces != null) {
+    effacerForces(planche, d.forces!);
   }
   if (a.caseIndex >= 0) {
     final g = Grille.personnalisee(cols: d.cols, rows: d.rows, colX: d.colX, rowY: d.rowY);
