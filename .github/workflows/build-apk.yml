@@ -54,6 +54,14 @@ jobs:
           cd atelier_sprites
           dart run flutter_launcher_icons
 
+      - name: Static analysis (errors as annotations)
+        # Rend les erreurs de compilation lisibles sans les journaux bruts.
+        continue-on-error: true
+        run: |
+          cd atelier_sprites
+          flutter analyze --no-pub 2>&1 | tee ../analyse.txt || true
+          grep -E "^\s*error" ../analyse.txt | head -20 | while IFS= read -r l; do echo "::error::${l}"; done
+
       - name: Run tests
         run: |
           cd atelier_sprites

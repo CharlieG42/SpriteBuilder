@@ -4,6 +4,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -194,8 +195,8 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   void _ajusterVue() {
     final c = _c;
     if (c == null || _zone.isEmpty) return;
-    final e = (_zone.width / c.largeur).clamp(0.0, double.infinity);
-    final f = (_zone.height / c.hauteur).clamp(0.0, double.infinity);
+    final e = _zone.width / c.largeur;
+    final f = _zone.height / c.hauteur;
     _echelle = e < f ? e : f;
     _decalage = Offset((_zone.width - c.largeur * _echelle) / 2, (_zone.height - c.hauteur * _echelle) / 2);
     _vueInitialisee = true;
@@ -268,14 +269,14 @@ class _EcranRetoucheState extends State<EcranRetouche> {
     final focal = e.localPosition;
     final imageFocal = _versImage(focal);
     setState(() {
-      _echelle = (_echelle * facteur).clamp(0.05, 60.0);
+      _echelle = (_echelle * facteur).clamp(0.05, 60.0).toDouble();
       _decalage = focal - imageFocal * _echelle;
     });
   }
 
   void _initPinch() {
     final pts = _doigts.values.toList();
-    _pinchD0 = (pts[0] - pts[1]).distance.clamp(1.0, double.infinity);
+    _pinchD0 = math.max(1.0, (pts[0] - pts[1]).distance);
     _pinchEchelle0 = _echelle;
     _pinchFocalImage = _versImage((pts[0] + pts[1]) / 2);
   }
@@ -285,7 +286,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
     final d = (pts[0] - pts[1]).distance;
     final focal = (pts[0] + pts[1]) / 2;
     setState(() {
-      _echelle = (_pinchEchelle0 * d / _pinchD0).clamp(0.05, 60.0);
+      _echelle = (_pinchEchelle0 * d / _pinchD0).clamp(0.05, 60.0).toDouble();
       _decalage = focal - _pinchFocalImage * _echelle;
     });
   }
