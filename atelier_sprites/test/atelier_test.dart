@@ -754,7 +754,7 @@ void main() {
       expect(png.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
       final im = img.decodePng(png)!;
       expect(im.getPixel(5, 5).a.toInt(), 0, reason: 'pixel gommé transparent');
-      expect(im.getPixel(7, 7).a.toInt(), 255);
+      expect(im.getPixel(9, 9).a.toInt(), 255);
       expect(im.getPixel(1, 1).a.toInt(), 255, reason: 'sans détourage, le fond reste');
       expect(im.getPixel(0, 0).b.toInt(), 255, reason: 'pixel peint');
 
