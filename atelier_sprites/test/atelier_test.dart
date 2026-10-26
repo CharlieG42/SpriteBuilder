@@ -7,6 +7,7 @@ import 'package:atelier_sprites/core/doublons.dart';
 import 'package:atelier_sprites/core/gif.dart';
 import 'package:atelier_sprites/core/intensite.dart';
 import 'package:atelier_sprites/core/reglages_anim.dart';
+import 'package:atelier_sprites/core/retouche.dart';
 import 'package:atelier_sprites/core/traitement.dart';
 import 'package:atelier_sprites/data/catalog.dart';
 import 'package:atelier_sprites/export/atelier_export.dart';
@@ -552,6 +553,210 @@ void main() {
       final druide = catalogueComplet().firstWhere((p) => p.id == 'druide');
       expect(sylvain.groupe, 'Nation Vents');
       expect(druide.groupe, 'Nation Sylvestre · Forêt');
+    });
+  });
+
+  group('retouche à la main', () {
+    // Planche 12×12 : fond blanc, carré rouge 2..9, canal blanc de 2 px de large du bord au centre.
+    img.Image planche12() {
+      final im = img.Image(width: 12, height: 12, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 2, y1: 2, x2: 9, y2: 9, color: img.ColorRgb8(200, 30, 30));
+      return im;
+    }
+
+    CalqueRetouche calque(img.Image im, {Uint8List? forces}) {
+      final brut = Uint8List(im.width * im.height * 4)..setAll(0, im.getBytes(order: img.ChannelOrder.rgba));
+      return CalqueRetouche.depuis(OuvertureRetouche(
+        im.width,
+        im.height,
+        brut,
+        forces ?? Uint8List(im.width * im.height),
+        Uint8List.fromList(brut),
+      ));
+    }
+
+    test('détourage : pixel supprimé à la main même isolé, pixel protégé jamais retiré', () {
+      final im = planche12();
+      // Canal blanc relié au bord : sans protection, le fond y pénètre.
+      img.fillRect(im, x1: 5, y1: 0, x2: 6, y2: 5, color: img.ColorRgb8(255, 255, 255));
+      final forces = Uint8List(144);
+      forces[7 * 12 + 7] = 1; // dans le rouge, isolé
+      forces[4 * 12 + 5] = 2; // dans le canal blanc
+      final copie = im.clone();
+      detourer(copie, tolerance: 30, douceur: 1.0, decontaminer: false, forces: forces);
+      expect(copie.getPixel(7, 7).a.toInt(), 0, reason: 'supprimé à la main');
+      expect(copie.getPixel(5, 4).a.toInt(), 255, reason: 'protégé');
+      expect(copie.getPixel(5, 5).a.toInt(), 0, reason: 'canal non protégé retiré');
+      expect(copie.getPixel(3, 3).a.toInt(), 255, reason: 'le reste du sprite est conservé');
+      expect(copie.getPixel(0, 0).a.toInt(), 0);
+    });
+
+    test('rognage : un pixel protégé n\'est pas grignoté, un pixel supprimé n\'est pas rendu', () {
+      final im = planche12();
+      final forces = Uint8List(144);
+      forces[5 * 12 + 2] = 2; // bord gauche du carré
+      final e = im.clone();
+      detourer(e, tolerance: 30, douceur: 1.0, decontaminer: false, rognage: 1, forces: forces);
+      expect(e.getPixel(2, 5).a.toInt(), 255, reason: 'protégé malgré l\'érosion');
+      expect(e.getPixel(2, 6).a.toInt(), 0, reason: 'voisin non protégé grignoté');
+
+      final f2 = Uint8List(144);
+      f2[5 * 12 + 1] = 1; // fond supprimé à la main, collé au sprite
+      final d = im.clone();
+      detourer(d, tolerance: 30, douceur: 1.0, decontaminer: false, rognage: -1, forces: f2);
+      expect(d.getPixel(1, 5).a.toInt(), 0, reason: 'supprimé à la main : jamais rendu');
+    });
+
+    test('pinceau : peint, protège, annule et rétablit', () {
+      final c = calque(planche12());
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 10, g: 20, b: 30);
+      c.terminer();
+      expect(c.couleurEn(0, 0), (r: 10, g: 20, b: 30));
+      expect(c.forces[0], forceProtege);
+      expect(c.modifie, isTrue);
+      expect(c.annuler(), isTrue);
+      expect(c.couleurEn(0, 0), (r: 255, g: 255, b: 255));
+      expect(c.forces[0], forceAuto);
+      expect(c.modifie, isFalse);
+      expect(c.retablir(), isTrue);
+      expect(c.couleurEn(0, 0), (r: 10, g: 20, b: 30));
+    });
+
+    test('gomme : un trait repassé deux fois s\'annule d\'un bloc', () {
+      final c = calque(planche12());
+      c.commencer();
+      c.trait(ModeRetouche.effacer, 3, 3, 8, 3, 2);
+      c.trait(ModeRetouche.effacer, 8, 3, 3, 3, 2);
+      c.terminer();
+      expect(c.forces[3 * 12 + 5], forceSupprime);
+      expect(c.affichage[(3 * 12 + 5) * 4 + 3], 0, reason: 'affichage transparent');
+      c.annuler();
+      expect(c.forces.every((f) => f == forceAuto), isTrue);
+      expect(c.affichage[(3 * 12 + 5) * 4 + 3], 255);
+      expect(c.annuler(), isFalse);
+    });
+
+    test('restaurer rend la couleur d\'origine et repasse en automatique', () {
+      final c = calque(planche12());
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 4, 4, 3, r: 0, g: 0, b: 255);
+      c.terminer();
+      c.commencer();
+      c.tampon(ModeRetouche.restaurer, 4, 4, 5);
+      c.terminer();
+      expect(c.couleurEn(4, 4), (r: 200, g: 30, b: 30));
+      expect(c.forces.every((f) => f == forceAuto), isTrue);
+      expect(c.aDesForces, isFalse);
+    });
+
+    test('baguette : zone contiguë ou globale selon l\'option', () {
+      final im = planche12();
+      img.fillRect(im, x1: 11, y1: 11, x2: 11, y2: 11, color: img.ColorRgb8(200, 30, 30)); // rouge isolé
+      final c = calque(im);
+      c.commencer();
+      final n = c.baguette(ModeRetouche.effacer, 4, 4, tolerance: 10, contigu: true);
+      c.terminer();
+      expect(n, 64, reason: 'carré rouge 8×8');
+      expect(c.forces[11 * 12 + 11], forceAuto, reason: 'rouge isolé non contigu');
+      c.annuler();
+      c.commencer();
+      final m = c.baguette(ModeRetouche.effacer, 4, 4, tolerance: 10, contigu: false);
+      c.terminer();
+      expect(m, 65);
+      expect(c.forces[11 * 12 + 11], forceSupprime);
+    });
+
+    test('lasso : intérieur ou extérieur d\'un polygone', () {
+      final c = calque(planche12());
+      final carre = <double>[2, 2, 6, 2, 6, 6, 2, 6];
+      c.commencer();
+      final dedans = c.polygone(ModeRetouche.effacer, carre);
+      c.terminer();
+      expect(dedans, 16);
+      expect(c.forces[3 * 12 + 3], forceSupprime);
+      expect(c.forces[7 * 12 + 7], forceAuto);
+      c.annuler();
+      c.commencer();
+      final dehors = c.polygone(ModeRetouche.proteger, carre, interieur: false);
+      c.terminer();
+      expect(dehors, 144 - 16);
+      expect(c.forces[3 * 12 + 3], forceAuto);
+      expect(c.forces[0], forceProtege);
+    });
+
+    test('teinte des zones protégées et contrôle du détourage', () {
+      final im = planche12();
+      final c = calque(im);
+      c.commencer();
+      c.tampon(ModeRetouche.proteger, 4, 4, 1);
+      c.terminer();
+      final avant = c.affichage[(4 * 12 + 4) * 4 + 1];
+      c.teinterProteges = true;
+      expect(c.affichage[(4 * 12 + 4) * 4 + 1], isNot(avant));
+      c.teinterProteges = false;
+      expect(c.affichage[(4 * 12 + 4) * 4 + 1], avant);
+
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 5, 5, 1);
+      c.terminer();
+      final brut = controleDetourage(DemandeControle(
+        largeur: 12,
+        hauteur: 12,
+        pixels: c.pixels,
+        forces: c.forces,
+        tolerance: 30,
+        douceur: 1.0,
+        decontaminer: false,
+        interieurs: true,
+        aireMinInterieur: 24,
+        rognage: 0,
+      ));
+      expect(brut.length, 12 * 12 * 4);
+      expect(brut[(0) * 4 + 3], 0, reason: 'fond retiré');
+      expect(brut[(5 * 12 + 5) * 4 + 3], 0, reason: 'pixel gommé à la main');
+      expect(brut[(7 * 12 + 7) * 4 + 3], 255, reason: 'sprite conservé');
+    });
+
+    test('ouverture et encodage : aller-retour PNG sans perte', () {
+      final im = planche12();
+      final png = Uint8List.fromList(img.encodePng(im));
+      final o = ouvrirRetouche(DemandeOuverture(png));
+      expect(o.largeur, 12);
+      expect(o.forces.length, 144);
+      final retour = img.decodePng(encoderRetouche(DemandeEncodage(o.largeur, o.hauteur, o.pixels)))!;
+      expect(retour.width, 12);
+      final p = retour.getPixel(5, 5);
+      expect([p.r.toInt(), p.g.toInt(), p.b.toInt()], [200, 30, 30]);
+    });
+
+    test('projet : appliquer puis annuler les retouches', () {
+      final octets = Uint8List.fromList(img.encodePng(planche12()));
+      final pl = PlancheProjet(octets: octets, nomFichier: 'a.png', imageW: 12, imageH: 12, grille: Grille.uniforme(1, 1));
+      expect(pl.retouchee, isFalse);
+      final retouche = Uint8List.fromList(img.encodePng(planche12()..setPixelRgba(0, 0, 1, 2, 3, 255)));
+      pl.appliquerRetouche(retouche, Uint8List(144)..[0] = 2);
+      expect(pl.retouchee, isTrue);
+      expect(pl.octetsOrigine, octets);
+      pl.appliquerRetouche(octets, Uint8List(144)..[1] = 1);
+      expect(pl.octetsOrigine, octets, reason: 'l\'origine reste la première image');
+      pl.annulerRetouche();
+      expect(pl.retouchee, isFalse);
+      expect(pl.octets, octets);
+    });
+
+    test('traiterCases : la retouche à la main se retrouve dans les cases exportées', () {
+      final octets = Uint8List.fromList(img.encodePng(planche12()));
+      final forces = Uint8List(144)..[7 * 12 + 7] = 1;
+      final opt = OptionsTraitement()
+        ..case512 = false
+        ..tolerance = 30;
+      final demande = construireDemande(octets, Grille.uniforme(1, 1), opt, const <int>[0], forces: forces);
+      final r = traiterCases(demande);
+      final sortie = img.decodePng(r.vignettes['0']!)!;
+      expect(sortie.getPixel(7, 7).a.toInt(), 0);
+      expect(sortie.getPixel(3, 3).a.toInt(), 255);
     });
   });
 }

@@ -27,7 +27,9 @@ class StatsDetourage {
 /// sprite. [decontaminer] : re-pousse la couleur du halo hors de la couleur
 /// du fond. [rognage] (px) : > 0 grignote le bord du sprite (liseré clair,
 /// halo) ; < 0 rend au sprite des pixels de fond qui le touchent (bord trop
-/// mangé).
+/// mangé). [forces] (une valeur par pixel, retouche à la main) : 1 = pixel
+/// supprimé quoi qu'il arrive, 2 = pixel protégé (jamais retiré ni adouci),
+/// 0 = automatique.
 StatsDetourage detourer(
   img.Image src, {
   required int tolerance,
@@ -36,6 +38,7 @@ StatsDetourage detourer(
   bool interieurs = true,
   int aireMinInterieur = 24,
   int rognage = 0,
+  Uint8List? forces,
 }) {
   final w = src.width;
   final h = src.height;
@@ -63,6 +66,10 @@ StatsDetourage detourer(
   final t2 = tolerance * tolerance * 3;
 
   bool estFond(int i) {
+    if (forces != null) {
+      if (forces[i] == 1) return true;
+      if (forces[i] == 2) return false;
+    }
     final p = src.getPixel(i % w, i ~/ w);
     final dr = p.r.toInt() - br;
     final dg = p.g.toInt() - bg;
@@ -107,6 +114,10 @@ StatsDetourage detourer(
   // part, pas les zones claires du personnage (cheveux blancs, visage, tenue).
   final tPoche2 = (tolerance * 0.5) * (tolerance * 0.5) * 3;
   bool estFondPoche(int i) {
+    if (forces != null) {
+      if (forces[i] == 1) return true;
+      if (forces[i] == 2) return false;
+    }
     final p = src.getPixel(i % w, i ~/ w);
     final dr = p.r.toInt() - br;
     final dg = p.g.toInt() - bg;
@@ -155,6 +166,13 @@ StatsDetourage detourer(
     }
   }
 
+  // Retouche à la main : les pixels supprimés le sont même s'ils sont isolés.
+  if (forces != null) {
+    for (var i = 0; i < w * h; i++) {
+      if (forces[i] == 1) masque[i] = 2;
+    }
+  }
+
   // Rognage du bord : érosion (> 0) ou dilatation (< 0) du sprite, pixel par pixel.
   // Pixels rendus au sprite par la dilatation : opacité selon leur écart au fond.
   final rendus = Uint8List(rognage < 0 ? w * h : 0);
@@ -169,6 +187,11 @@ StatsDetourage detourer(
           final fond = masque[i] != 0;
           // Érosion : pixel du sprite touchant le fond. Dilatation : fond touchant le sprite.
           if (rognage > 0 ? fond : !fond) continue;
+          if (forces != null) {
+            // Ni grignoter un pixel protégé, ni rendre un pixel supprimé à la main.
+            if (rognage > 0 && forces[i] == 2) continue;
+            if (rognage < 0 && forces[i] == 1) continue;
+          }
           final cible = rognage > 0;
           final touche = (x > 0 && (masque[i - 1] != 0) == cible) ||
               (x < w - 1 && (masque[i + 1] != 0) == cible) ||
@@ -202,6 +225,7 @@ StatsDetourage detourer(
     for (var x = 0; x < w; x++) {
       final i = y * w + x;
       if (masque[i] != 0) continue;
+      if (forces != null && forces[i] == 2) continue;
       final rendu = rendus.isNotEmpty && rendus[i] == 1;
       final voisinFond = (x > 0 && masque[i - 1] != 0) ||
           (x < w - 1 && masque[i + 1] != 0) ||

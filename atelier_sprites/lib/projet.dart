@@ -27,6 +27,29 @@ class PlancheProjet {
   final Set<int> exclues = <int>{};
   final Map<int, String> renommages = <int, String>{};
 
+  /// Retouche à la main : image d'origine (avant la première retouche) et carte
+  /// des pixels forcés (0 auto, 1 supprimé, 2 protégé). `octets` porte alors
+  /// l'image retouchée (pixels peints).
+  Uint8List? octetsOrigine;
+  Uint8List? forces;
+
+  bool get retouchee => forces != null;
+
+  void appliquerRetouche(Uint8List octetsRetouches, Uint8List nouvellesForces) {
+    octetsOrigine ??= octets;
+    octets = octetsRetouches;
+    forces = nouvellesForces;
+    invaliderApercus();
+  }
+
+  /// Abandonne toutes les retouches (retour à l'image importée).
+  void annulerRetouche() {
+    if (octetsOrigine != null) octets = octetsOrigine!;
+    octetsOrigine = null;
+    forces = null;
+    invaliderApercus();
+  }
+
   /// L'utilisateur a ouvert la planche et vérifié ses cases.
   bool verifiee = false;
 

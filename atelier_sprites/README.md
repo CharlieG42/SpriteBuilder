@@ -58,6 +58,11 @@ flutter run
      zoomée : *Résultat* sur fond noir / magenta / blanc / herbe / damier (un liseré saute aux
      yeux), *Avant/après* avec curseur de séparation, *Retiré* (zones supprimées en rouge sur
      l'original) ; zoom au doigt avec pixels nets ;
+   - **retouche à la main** (bouton sous l'aperçu), façon logiciel de dessin, sur la planche
+     entière : *pinceau* (peint et protège), *gomme* (supprime), *protéger* (le détourage ne
+     retire jamais ces pixels : cheveux blancs, reflets), *restaurer*, *baguette magique*
+     (tolérance, contigu ou non), *lasso* (intérieur ou extérieur), *pipette*, zoom à deux doigts,
+     annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
    - indicateur de contrôle : pourcentage de fond retiré, alerte si < 5 % ou > 92 %.
 3. **Personnage & poses** — catalogue complet embarqué (10 nations : héros, 4 ennemis, boss ;
    12 familiers ; 10 mécanismes), **présélection automatique depuis le nom du fichier**
@@ -117,6 +122,7 @@ lib/
 │   ├── decoupe.dart             Grille, détection auto, extraction des cases, carré 512, ancrage au sol
 │   ├── animations.dart          regroupement des poses en animations, séquence aller-retour
 │   ├── gif.dart                 encodage GIF animé (isolate)
+│   ├── retouche.dart            calque de retouche à la main (outils, annuler/rétablir, forces)
 │   ├── reglages_anim.dart       mouvement procédural de Zimut : paramètres, formules, mémorisation
 │   └── traitement.dart          worker isolate (décodage → détour → cases → PNG)
 ├── export/atelier_export.dart   chemins du dépôt + écriture du zip (archive)

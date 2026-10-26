@@ -142,6 +142,10 @@ class DemandeCases {
   /// avec [case512], c'est le carré normalisé qui est réduit à cette taille.
   final int tailleVignette;
 
+  /// Retouche à la main (un octet par pixel de la planche) : 0 auto, 1 supprimé,
+  /// 2 protégé ; `null` : planche non retouchée.
+  final Uint8List? forces;
+
   const DemandeCases({
     required this.octets,
     required this.cols,
@@ -161,5 +165,6 @@ class DemandeCases {
     this.margeSol = 0.06,
     this.ratioForce = 0,
     this.tailleVignette = 0,
+    this.forces,
   });
 }

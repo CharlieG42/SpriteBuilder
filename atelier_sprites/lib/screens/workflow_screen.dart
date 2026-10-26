@@ -25,6 +25,7 @@ import '../widgets/apercu_grille.dart';
 import '../widgets/comparateur_detour.dart';
 import '../widgets/damier.dart';
 import 'animation_screen.dart';
+import 'retouche_screen.dart';
 
 /// Préparation d'une planche d'un projet personnage (grille, détourage,
 /// poses, export de cette planche seule).
@@ -110,6 +111,8 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     }
     setState(() {
       _p.octets = octets;
+      _p.octetsOrigine = null;
+      _p.forces = null;
       _apercu = null;
       _p.nomFichier = fichier.name;
       _p.imageW = source.width;
@@ -304,7 +307,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     try {
       final zone = _zoneApercu < _grille.nbCases ? _zoneApercu : -1;
       final demande = DemandeApercuDetour(
-        construireDemande(_octets!, _grille, _optionsApercu, const <int>[]),
+        construireDemande(_octets!, _grille, _optionsApercu, const <int>[], forces: _p.forces),
         caseIndex: zone,
         tailleMax: zone < 0 ? 1100 : 700,
       );
@@ -341,6 +344,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
         _optionsApercu,
         indices,
         tailleVignette: 160,
+        forces: _p.forces,
       );
       final resultat = await compute(traiterCases, demande);
       final doublons = await compute(detecterDoublons, <int, Uint8List>{
@@ -372,6 +376,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       indices,
       tailleVignette: 320,
       ratioForce: widget.projet.ratioCommun,
+      forces: _p.forces,
     );
     final resultat = await compute(traiterCases, demande);
     final images = <int, Uint8List>{
@@ -434,6 +439,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
         _options,
         inclus,
         ratioForce: widget.projet.ratioCommun,
+        forces: _p.forces,
       );
       final resultat = await compute(traiterCases, demande);
       final fichiers = <FichierExport>[];
@@ -812,8 +818,80 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
             const Text('⚠ Presque tout a été supprimé : baisse l\'intensité.',
                 style: TextStyle(color: Colors.orange)),
         ],
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _octets == null ? null : _retoucher,
+          icon: const Icon(Icons.brush),
+          label: Text(_p.retouchee ? 'Retoucher à la main (retouches actives)' : 'Retoucher à la main…'),
+        ),
+        if (_p.retouchee)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _annulerRetouches,
+              icon: const Icon(Icons.restore),
+              label: const Text('Annuler toutes les retouches'),
+            ),
+          ),
+        Text(
+          'Pinceau, gomme, baguette magique, lasso : corrige à la main ce que le détourage automatique rate '
+          '(zones claires mangées, fond resté).',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     );
+  }
+
+  /// Ouvre l'éditeur de retouche à la main sur la planche entière.
+  Future<void> _retoucher() async {
+    if (_octets == null) return;
+    final r = await Navigator.of(context).push<ResultatRetouche>(
+      MaterialPageRoute(
+        builder: (_) => EcranRetouche(
+          octets: _octets!,
+          octetsOrigine: _p.octetsOrigine,
+          forces: _p.forces,
+          options: _optionsApercu,
+          titre: _nomFichier,
+        ),
+      ),
+    );
+    if (r == null || !mounted) return;
+    setState(() {
+      if (r.vide) {
+        _p.annulerRetouche();
+      } else {
+        _p.appliquerRetouche(r.octets, r.forces);
+      }
+      _apercu = null;
+      _p.apercuDetour = null;
+      _invaliderApercus();
+      _pourcentageFond = -1;
+    });
+    _planifierApercu(immediat: true);
+  }
+
+  Future<void> _annulerRetouches() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Annuler les retouches ?'),
+        content: const Text('Retour à l\'image importée : pinceau, gomme et protections seront perdus.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Non')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Annuler les retouches')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _p.annulerRetouche();
+      _apercu = null;
+      _p.apercuDetour = null;
+      _invaliderApercus();
+      _pourcentageFond = -1;
+    });
+    _planifierApercu(immediat: true);
   }
 
   Widget _etapePerso() {
