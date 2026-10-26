@@ -4,13 +4,17 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/retouche.dart';
 import '../models.dart';
@@ -79,6 +83,13 @@ class EcranRetouche extends StatefulWidget {
   final OptionsTraitement options;
   final String titre;
 
+  /// Mode « logiciel de retouche » : pas de planche de sprites derrière, on
+  /// travaille sur l'image et on l'exporte en PNG ou JPG.
+  final bool autonome;
+
+  /// Case « détourer automatiquement » cochée par défaut à l'export.
+  final bool detourageParDefaut;
+
   const EcranRetouche({
     super.key,
     required this.octets,
@@ -86,6 +97,8 @@ class EcranRetouche extends StatefulWidget {
     required this.titre,
     this.octetsOrigine,
     this.forces,
+    this.autonome = false,
+    this.detourageParDefaut = true,
   });
 
   @override
@@ -109,7 +122,14 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   Color _couleur = const Color(0xFFFFFFFF);
   final List<Color> _recentes = <Color>[];
 
-  FondControle _fond = FondControle.magenta;
+  late FondControle _fond = widget.autonome ? FondControle.damier : FondControle.magenta;
+
+  // Export.
+  FormatExport _formatExport = FormatExport.png;
+  int _qualiteJpg = 92;
+  late bool _detourerExport = widget.detourageParDefaut;
+  FondControle _fondJpg = FondControle.blanc;
+  int _versionExportee = 0;
 
   // Contrôle : résultat du détourage automatique (retouches comprises).
   bool _controle = false;
@@ -523,11 +543,14 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   Future<bool> _confirmerSortie() async {
     final c = _c;
     if (c == null || !(c.modifie || c.peutAnnuler)) return true;
+    if (widget.autonome && c.version == _versionExportee) return true;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Quitter sans enregistrer ?'),
-        content: const Text('Les retouches de cette session seront perdues.'),
+        title: Text(widget.autonome ? 'Quitter sans exporter ?' : 'Quitter sans enregistrer ?'),
+        content: Text(widget.autonome
+            ? 'Les modifications depuis le dernier export seront perdues.'
+            : 'Les retouches de cette session seront perdues.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Continuer')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Quitter')),
@@ -539,6 +562,181 @@ class _EcranRetoucheState extends State<EcranRetouche> {
 
   void _message(String texte) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texte)));
+  }
+
+  String get _nomBase {
+    final sansExt = widget.titre.replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '');
+    final propre = sansExt.replaceAll(RegExp(r'[^A-Za-z0-9_\-]+'), '_');
+    return propre.isEmpty ? 'image' : propre;
+  }
+
+  /// Fenêtre d'export : format, détourage, qualité JPG, puis enregistrer ou partager.
+  Future<void> _dialogueExport() async {
+    final c = _c;
+    if (c == null) return;
+    _terminerOutil(annule: false);
+    c.terminer();
+    final choix = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) {
+          final theme = Theme.of(ctx);
+          final jpg = _formatExport == FormatExport.jpg;
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Exporter l\'image', style: theme.textTheme.titleMedium),
+                  Text('${c.largeur} × ${c.hauteur} px', style: theme.textTheme.bodySmall),
+                  const SizedBox(height: 10),
+                  SegmentedButton<FormatExport>(
+                    segments: const [
+                      ButtonSegment(value: FormatExport.png, label: Text('PNG'), icon: Icon(Icons.layers_outlined)),
+                      ButtonSegment(value: FormatExport.jpg, label: Text('JPG'), icon: Icon(Icons.photo_outlined)),
+                    ],
+                    selected: {_formatExport},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (s) => setS(() => _formatExport = s.first),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    jpg
+                        ? 'Pas de transparence : l\'image est posée sur le fond choisi.'
+                        : 'Garde la transparence (sans perte).',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Détourer le fond automatiquement'),
+                    subtitle: const Text('Avec les réglages de détourage et tes retouches. '
+                        'Désactivé : seuls les pixels gommés à la main sont transparents.'),
+                    value: _detourerExport,
+                    onChanged: (v) => setS(() => _detourerExport = v),
+                  ),
+                  if (jpg) ...[
+                    Row(
+                      children: [
+                        SizedBox(width: 84, child: Text('Qualité $_qualiteJpg')),
+                        Expanded(
+                          child: Slider(
+                            value: _qualiteJpg.toDouble(),
+                            min: 50,
+                            max: 100,
+                            divisions: 50,
+                            label: '$_qualiteJpg',
+                            onChanged: (v) => setS(() => _qualiteJpg = v.round()),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        const Text('Fond'),
+                        for (final f in const [
+                          FondControle.blanc,
+                          FondControle.noir,
+                          FondControle.magenta,
+                          FondControle.herbe,
+                        ])
+                          ChoiceChip(
+                            label: Text(f.libelle),
+                            selected: f == _fondJpg,
+                            onSelected: (_) => setS(() => _fondJpg = f),
+                          ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          icon: const Icon(Icons.share),
+                          label: const Text('Partager'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          icon: const Icon(Icons.save_alt),
+                          label: const Text('Enregistrer'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    if (choix == null || !mounted) return;
+    await _exporter(enregistrer: choix);
+  }
+
+  Future<void> _exporter({required bool enregistrer}) async {
+    final c = _c;
+    if (c == null) return;
+    setState(() => _occupe = true);
+    try {
+      final o = widget.options;
+      final fond = _fondJpg.couleur;
+      final png = _formatExport == FormatExport.png;
+      final octets = await compute(
+        exporterImage,
+        DemandeExport(
+          largeur: c.largeur,
+          hauteur: c.hauteur,
+          pixels: c.pixels,
+          forces: c.forces,
+          format: _formatExport,
+          detourer: _detourerExport,
+          tolerance: o.tolerance,
+          douceur: o.douceur,
+          decontaminer: o.decontaminer,
+          interieurs: o.interieurs,
+          aireMinInterieur: o.aireMinInterieur,
+          rognage: o.rognage,
+          qualite: _qualiteJpg,
+          fondR: fond.red,
+          fondG: fond.green,
+          fondB: fond.blue,
+        ),
+      );
+      final nom = '${_nomBase}_retouche.${png ? 'png' : 'jpg'}';
+      if (enregistrer) {
+        final chemin = await FilePicker.platform.saveFile(
+          dialogTitle: 'Enregistrer l\'image',
+          fileName: nom,
+          bytes: octets,
+        );
+        if (chemin != null) {
+          _versionExportee = c.version;
+          if (mounted) _message('Image enregistrée ($nom).');
+        }
+      } else {
+        final dossier = await getTemporaryDirectory();
+        final fichier = File('${dossier.path}/$nom');
+        await fichier.writeAsBytes(octets, flush: true);
+        await Share.shareXFiles(
+          <XFile>[XFile(fichier.path, mimeType: png ? 'image/png' : 'image/jpeg')],
+        );
+        _versionExportee = c.version;
+      }
+    } catch (e) {
+      if (mounted) _message('Export impossible : $e');
+    } finally {
+      if (mounted) setState(() => _occupe = false);
+    }
   }
 
   Future<void> _editerCouleur() async {
@@ -623,10 +821,16 @@ class _EcranRetoucheState extends State<EcranRetouche> {
               onPressed: c != null && c.peutRetablir && !_controle ? _retablir : null,
             ),
             IconButton(
-              tooltip: 'Terminer et appliquer',
-              icon: const Icon(Icons.check),
-              onPressed: c == null || _occupe ? null : _terminer,
+              tooltip: 'Exporter en PNG ou JPG',
+              icon: const Icon(Icons.ios_share),
+              onPressed: c == null || _occupe ? null : _dialogueExport,
             ),
+            if (!widget.autonome)
+              IconButton(
+                tooltip: 'Terminer et appliquer',
+                icon: const Icon(Icons.check),
+                onPressed: c == null || _occupe ? null : _terminer,
+              ),
           ],
         ),
         body: _erreur != null

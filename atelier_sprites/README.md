@@ -63,6 +63,11 @@ flutter run
      retire jamais ces pixels : cheveux blancs, reflets), *restaurer*, *baguette magique*
      (tolérance, contigu ou non), *lasso* (intérieur ou extérieur), *pipette*, zoom à deux doigts,
      annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
+   - **export PNG ou JPG** de l'image de travail (bouton partage de l'éditeur) : PNG transparent,
+     ou JPG (qualité réglable, fond au choix), avec ou sans détourage automatique ; enregistrer
+     dans un dossier ou partager. L'éditeur s'ouvre aussi **sans planche de sprites** depuis
+     l'accueil (*Ouvrir une image*, *Nouvelle image* vierge ou transparente) : retouche et dessin
+     libres, export direct ;
    - indicateur de contrôle : pourcentage de fond retiré, alerte si < 5 % ou > 92 %.
 3. **Personnage & poses** — catalogue complet embarqué (10 nations : héros, 4 ennemis, boss ;
    12 familiers ; 10 mécanismes), **présélection automatique depuis le nom du fichier**

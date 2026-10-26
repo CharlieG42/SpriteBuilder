@@ -142,6 +142,119 @@ Uint8List controleDetourage(DemandeControle d) {
   return Uint8List.fromList(sortie);
 }
 
+enum FormatExport { png, jpg }
+
+/// Export de l'image de travail en PNG ou JPG, sans passer par le découpage en
+/// sprites (prévu pour `compute()`).
+///
+/// [detourer] : applique le détourage automatique (avec les retouches) ; sinon
+/// seuls les pixels supprimés à la main deviennent transparents. Le JPG n'a pas
+/// de transparence : l'image est posée sur la couleur de fond [fondR]/[fondG]/[fondB].
+class DemandeExport {
+  final int largeur;
+  final int hauteur;
+  final Uint8List pixels;
+  final Uint8List forces;
+  final bool detourer;
+  final int tolerance;
+  final double douceur;
+  final bool decontaminer;
+  final bool interieurs;
+  final int aireMinInterieur;
+  final int rognage;
+  final FormatExport format;
+  final int qualite;
+  final int fondR;
+  final int fondG;
+  final int fondB;
+
+  const DemandeExport({
+    required this.largeur,
+    required this.hauteur,
+    required this.pixels,
+    required this.forces,
+    required this.format,
+    this.detourer = false,
+    this.tolerance = 45,
+    this.douceur = 1.0,
+    this.decontaminer = true,
+    this.interieurs = true,
+    this.aireMinInterieur = 24,
+    this.rognage = 0,
+    this.qualite = 92,
+    this.fondR = 255,
+    this.fondG = 255,
+    this.fondB = 255,
+  });
+}
+
+Uint8List exporterImage(DemandeExport d) {
+  Uint8List rgba;
+  if (d.detourer) {
+    rgba = controleDetourage(DemandeControle(
+      largeur: d.largeur,
+      hauteur: d.hauteur,
+      pixels: d.pixels,
+      forces: d.forces,
+      tolerance: d.tolerance,
+      douceur: d.douceur,
+      decontaminer: d.decontaminer,
+      interieurs: d.interieurs,
+      aireMinInterieur: d.aireMinInterieur,
+      rognage: d.rognage,
+    ));
+  } else {
+    rgba = Uint8List.fromList(d.pixels);
+    for (var i = 0; i < d.forces.length; i++) {
+      if (d.forces[i] == forceSupprime) {
+        final o = i * 4;
+        rgba[o] = 0;
+        rgba[o + 1] = 0;
+        rgba[o + 2] = 0;
+        rgba[o + 3] = 0;
+      }
+    }
+  }
+  if (d.format == FormatExport.png) {
+    return encoderRetouche(DemandeEncodage(d.largeur, d.hauteur, rgba));
+  }
+  // JPG : pas de transparence, l'image est posée sur le fond choisi.
+  final n = d.largeur * d.hauteur;
+  final rgb = Uint8List(n * 3);
+  for (var i = 0; i < n; i++) {
+    final o = i * 4;
+    final a = rgba[o + 3];
+    final k = i * 3;
+    if (a == 255) {
+      rgb[k] = rgba[o];
+      rgb[k + 1] = rgba[o + 1];
+      rgb[k + 2] = rgba[o + 2];
+    } else {
+      rgb[k] = (rgba[o] * a + d.fondR * (255 - a)) ~/ 255;
+      rgb[k + 1] = (rgba[o + 1] * a + d.fondG * (255 - a)) ~/ 255;
+      rgb[k + 2] = (rgba[o + 2] * a + d.fondB * (255 - a)) ~/ 255;
+    }
+  }
+  final image = img.Image.fromBytes(
+    width: d.largeur,
+    height: d.hauteur,
+    bytes: rgb.buffer,
+    numChannels: 3,
+    order: img.ChannelOrder.rgb,
+  );
+  return Uint8List.fromList(img.encodeJpg(image, quality: d.qualite.clamp(1, 100).toInt()));
+}
+
+/// Image vierge : [fond] null = transparente, sinon couleur opaque (PNG).
+Uint8List imageVierge(({int largeur, int hauteur, int? fond}) p) {
+  final image = img.Image(width: p.largeur, height: p.hauteur, numChannels: 4);
+  final f = p.fond;
+  if (f != null) {
+    img.fill(image, color: img.ColorRgba8((f >> 16) & 255, (f >> 8) & 255, f & 255, 255));
+  }
+  return Uint8List.fromList(img.encodePng(image));
+}
+
 /// Pixels modifiés par une action : valeurs avant, pour annuler / rétablir.
 class _Journal {
   final List<int> idx = <int>[];
@@ -171,6 +284,7 @@ class CalqueRetouche {
   final List<_Journal> _annuler = <_Journal>[];
   final List<_Journal> _retablir = <_Journal>[];
   bool _teinterProteges = false;
+  int _version = 0;
 
   CalqueRetouche._(this.largeur, this.hauteur, this.pixels, this.forces, this.origine)
       : affichage = Uint8List(largeur * hauteur * 4),
@@ -188,6 +302,10 @@ class CalqueRetouche {
   int get nbPixels => largeur * hauteur;
 
   bool get modifie => _annuler.isNotEmpty;
+
+  /// Compteur incrémenté à chaque changement validé (pour savoir si l'on a exporté
+  /// l'état courant).
+  int get version => _version;
   bool get peutAnnuler => _annuler.isNotEmpty || (_courant?.idx.isNotEmpty ?? false);
   bool get peutRetablir => _retablir.isNotEmpty;
 
@@ -245,6 +363,7 @@ class CalqueRetouche {
     if (j.idx.isEmpty) return false;
     _annuler.add(j);
     _retablir.clear();
+    _version++;
     return true;
   }
 
@@ -254,6 +373,7 @@ class CalqueRetouche {
     final j = _annuler.removeLast();
     _echanger(j);
     _retablir.add(j);
+    _version++;
     return true;
   }
 
@@ -263,6 +383,7 @@ class CalqueRetouche {
     final j = _retablir.removeLast();
     _echanger(j);
     _annuler.add(j);
+    _version++;
     return true;
   }
 

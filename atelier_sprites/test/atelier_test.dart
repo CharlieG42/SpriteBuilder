@@ -731,6 +731,65 @@ void main() {
       expect([p.r.toInt(), p.g.toInt(), p.b.toInt()], [200, 30, 30]);
     });
 
+    test('export PNG et JPG sans passer par les sprites', () {
+      final c = calque(planche12());
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 5, 5, 1);
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 0, g: 0, b: 255);
+      c.terminer();
+      expect(c.version, greaterThan(0));
+
+      DemandeExport demande(FormatExport f, {bool detourer = false}) => DemandeExport(
+            largeur: 12,
+            hauteur: 12,
+            pixels: c.pixels,
+            forces: c.forces,
+            format: f,
+            detourer: detourer,
+            tolerance: 30,
+            decontaminer: false,
+          );
+
+      final png = exporterImage(demande(FormatExport.png));
+      expect(png.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
+      final im = img.decodePng(png)!;
+      expect(im.getPixel(5, 5).a.toInt(), 0, reason: 'pixel gommé transparent');
+      expect(im.getPixel(7, 7).a.toInt(), 255);
+      expect(im.getPixel(1, 1).a.toInt(), 255, reason: 'sans détourage, le fond reste');
+      expect(im.getPixel(0, 0).b.toInt(), 255, reason: 'pixel peint');
+
+      final detoure = img.decodePng(exporterImage(demande(FormatExport.png, detourer: true)))!;
+      expect(detoure.getPixel(1, 1).a.toInt(), 0, reason: 'fond détouré');
+      expect(detoure.getPixel(0, 0).a.toInt(), 255, reason: 'pixel peint protégé');
+
+      final jpg = exporterImage(DemandeExport(
+        largeur: 12,
+        hauteur: 12,
+        pixels: c.pixels,
+        forces: c.forces,
+        format: FormatExport.jpg,
+        fondR: 0,
+        fondG: 255,
+        fondB: 0,
+        qualite: 95,
+      ));
+      expect(jpg.sublist(0, 2), [0xFF, 0xD8]);
+      final j = img.decodeJpg(jpg)!;
+      expect(j.width, 12);
+      final p = j.getPixel(5, 5);
+      expect(p.g.toInt(), greaterThan(180), reason: 'transparent posé sur le fond vert');
+      expect(p.r.toInt(), lessThan(90));
+    });
+
+    test('image vierge : transparente ou colorée', () {
+      final t = img.decodePng(imageVierge((largeur: 16, hauteur: 8, fond: null)))!;
+      expect([t.width, t.height], [16, 8]);
+      expect(t.getPixel(3, 3).a.toInt(), 0);
+      final b = img.decodePng(imageVierge((largeur: 4, hauteur: 4, fond: 0xFFFFFF)))!;
+      expect(b.getPixel(1, 1).a.toInt(), 255);
+      expect(b.getPixel(1, 1).r.toInt(), 255);
+    });
+
     test('projet : appliquer puis annuler les retouches', () {
       final octets = Uint8List.fromList(img.encodePng(planche12()));
       final pl = PlancheProjet(octets: octets, nomFichier: 'a.png', imageW: 12, imageH: 12, grille: Grille.uniforme(1, 1));
