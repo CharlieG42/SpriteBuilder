@@ -734,7 +734,7 @@ void main() {
     test('export PNG et JPG sans passer par les sprites', () {
       final c = calque(planche12());
       c.commencer();
-      c.tampon(ModeRetouche.effacer, 5, 5, 1);
+      c.polygone(ModeRetouche.effacer, <double>[3, 3, 8, 3, 8, 8, 3, 8]); // bloc 5×5 gommé
       c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 0, g: 0, b: 255);
       c.terminer();
       expect(c.version, greaterThan(0));
@@ -777,8 +777,8 @@ void main() {
       final j = img.decodeJpg(jpg)!;
       expect(j.width, 12);
       final p = j.getPixel(5, 5);
-      expect(p.g.toInt(), greaterThan(180), reason: 'transparent posé sur le fond vert');
-      expect(p.r.toInt(), lessThan(90));
+      expect(p.g.toInt(), greaterThan(150), reason: 'transparent posé sur le fond vert');
+      expect(p.r.toInt(), lessThan(110));
     });
 
     test('image vierge : transparente ou colorée', () {

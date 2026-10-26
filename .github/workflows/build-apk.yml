@@ -65,7 +65,12 @@ jobs:
       - name: Run tests
         run: |
           cd atelier_sprites
-          flutter test
+          set +e
+          flutter test 2>&1 | tee ../tests.txt
+          code=${PIPESTATUS[0]}
+          # Échecs lisibles sans les journaux bruts (annotations).
+          grep -E "\[E\]|Expected:|Actual:|Which:|reason|Error:" ../tests.txt | head -12 | while IFS= read -r l; do echo "::error::${l}"; done
+          exit $code
 
       - name: Prepare release signing
         # Secrets absents (fork, dépôt pas encore configuré) : la release est signée
