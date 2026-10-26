@@ -731,6 +731,42 @@ void main() {
       expect([p.r.toInt(), p.g.toInt(), p.b.toInt()], [200, 30, 30]);
     });
 
+    test('formes : rectangle plein ou contour, ellipse, ligne', () {
+      final c = calque(planche12());
+      c.commencer();
+      expect(c.rectangle(ModeRetouche.proteger, 1, 1, 6, 6, epaisseur: 1, rempli: false), 20, reason: '6×6 moins 4×4');
+      c.terminer();
+      expect(c.forces[1 * 12 + 1], forceProtege);
+      expect(c.forces[3 * 12 + 3], forceAuto, reason: 'intérieur du contour intact');
+      c.annuler();
+
+      c.commencer();
+      expect(c.rectangle(ModeRetouche.effacer, 6, 6, 1, 1, epaisseur: 1, rempli: true), 36, reason: 'coins dans le désordre');
+      c.terminer();
+      c.annuler();
+
+      c.commencer();
+      final disque = c.ellipse(ModeRetouche.effacer, 2, 2, 9, 9, epaisseur: 1, rempli: true);
+      c.terminer();
+      expect(disque, inInclusiveRange(48, 64));
+      expect(c.forces[5 * 12 + 5], forceSupprime);
+      expect(c.forces[2 * 12 + 2], forceAuto, reason: 'coin du cadre hors de l\'ellipse');
+      c.annuler();
+
+      c.commencer();
+      c.ellipse(ModeRetouche.effacer, 2, 2, 9, 9, epaisseur: 1, rempli: false);
+      c.terminer();
+      expect(c.forces[5 * 12 + 5], forceAuto, reason: 'centre de l\'ellipse creuse intact');
+      expect(c.forces[2 * 12 + 5], forceSupprime, reason: 'bord haut de l\'ellipse');
+      c.annuler();
+
+      c.commencer();
+      c.trait(ModeRetouche.peindre, 0, 11, 11, 11, 1, r: 9, g: 9, b: 9);
+      c.terminer();
+      expect(c.couleurEn(6, 11), (r: 9, g: 9, b: 9));
+      expect(c.couleurEn(6, 10), isNot((r: 9, g: 9, b: 9)));
+    });
+
     test('export PNG et JPG sans passer par les sprites', () {
       final c = calque(planche12());
       c.commencer();

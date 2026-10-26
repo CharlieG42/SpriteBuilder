@@ -496,6 +496,76 @@ class CalqueRetouche {
     tampon(mode, x1, y1, diametre, r: r, g: g, b: b);
   }
 
+  /// Rectangle de coins opposés (x0, y0) et (x1, y1), inclus : plein, ou contour de
+  /// [epaisseur] px vers l'intérieur. Retourne le nombre de pixels touchés.
+  int rectangle(
+    ModeRetouche mode,
+    int x0,
+    int y0,
+    int x1,
+    int y1, {
+    required int epaisseur,
+    required bool rempli,
+    int r = 0,
+    int g = 0,
+    int b = 0,
+  }) {
+    final ax = math.min(x0, x1);
+    final bx = math.max(x0, x1);
+    final ay = math.min(y0, y1);
+    final by = math.max(y0, y1);
+    var n = 0;
+    for (var y = math.max(0, ay); y <= math.min(hauteur - 1, by); y++) {
+      for (var x = math.max(0, ax); x <= math.min(largeur - 1, bx); x++) {
+        if (!rempli && x - ax >= epaisseur && bx - x >= epaisseur && y - ay >= epaisseur && by - y >= epaisseur) {
+          continue;
+        }
+        _appliquer(mode, y * largeur + x, r, g, b);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /// Ellipse inscrite dans le rectangle de coins (x0, y0) et (x1, y1), inclus :
+  /// pleine, ou contour de [epaisseur] px vers l'intérieur.
+  int ellipse(
+    ModeRetouche mode,
+    int x0,
+    int y0,
+    int x1,
+    int y1, {
+    required int epaisseur,
+    required bool rempli,
+    int r = 0,
+    int g = 0,
+    int b = 0,
+  }) {
+    final ax = math.min(x0, x1);
+    final bx = math.max(x0, x1);
+    final ay = math.min(y0, y1);
+    final by = math.max(y0, y1);
+    final cx = (ax + bx + 1) / 2;
+    final cy = (ay + by + 1) / 2;
+    final rx = (bx - ax + 1) / 2;
+    final ry = (by - ay + 1) / 2;
+    final irx = rx - epaisseur;
+    final iry = ry - epaisseur;
+    final creuse = !rempli && irx > 0 && iry > 0;
+    var n = 0;
+    for (var y = math.max(0, ay); y <= math.min(hauteur - 1, by); y++) {
+      final dy = y + 0.5 - cy;
+      for (var x = math.max(0, ax); x <= math.min(largeur - 1, bx); x++) {
+        final dx = x + 0.5 - cx;
+        if (dx * dx / (rx * rx) + dy * dy / (ry * ry) > 1) continue;
+        if (creuse && dx * dx / (irx * irx) + dy * dy / (iry * iry) < 1) continue;
+        _appliquer(mode, y * largeur + x, r, g, b);
+        n++;
+      }
+    }
+    return n;
+  }
+
   /// Baguette magique : applique [mode] aux pixels de couleur proche de celle du
   /// pixel (x, y) — voisins de proche en proche si [contigu], sinon toute la
   /// planche. Retourne le nombre de pixels sélectionnés.

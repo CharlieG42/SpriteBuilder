@@ -61,7 +61,8 @@ flutter run
    - **retouche à la main** (bouton sous l'aperçu), façon logiciel de dessin, sur la planche
      entière : *pinceau* (peint et protège), *gomme* (supprime), *protéger* (le détourage ne
      retire jamais ces pixels : cheveux blancs, reflets), *restaurer*, *baguette magique*
-     (tolérance, contigu ou non), *lasso* (intérieur ou extérieur), *pipette*, zoom à deux doigts,
+     (tolérance, contigu ou non), *lasso* (intérieur ou extérieur), *ligne*, *rectangle* et *ellipse* (pleins ou contours, avec aperçu
+     pendant le glissement), *pipette*, zoom à deux doigts,
      annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
    - **export PNG ou JPG** de l'image de travail (bouton partage de l'éditeur) : PNG transparent,
      ou JPG (qualité réglable, fond au choix), avec ou sans détourage automatique ; enregistrer

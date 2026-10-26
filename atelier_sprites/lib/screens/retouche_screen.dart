@@ -31,7 +31,7 @@ class ResultatRetouche {
   const ResultatRetouche(this.octets, this.forces, this.vide);
 }
 
-enum Outil { pinceau, gomme, proteger, restaurer, baguette, lasso, pipette, main }
+enum Outil { pinceau, gomme, proteger, restaurer, ligne, rectangle, ellipse, baguette, lasso, pipette, main }
 
 extension OutilX on Outil {
   String get libelle => switch (this) {
@@ -39,6 +39,9 @@ extension OutilX on Outil {
         Outil.gomme => 'Gomme',
         Outil.proteger => 'Protéger',
         Outil.restaurer => 'Restaurer',
+        Outil.ligne => 'Ligne',
+        Outil.rectangle => 'Rectangle',
+        Outil.ellipse => 'Ellipse',
         Outil.baguette => 'Baguette',
         Outil.lasso => 'Lasso',
         Outil.pipette => 'Pipette',
@@ -50,6 +53,9 @@ extension OutilX on Outil {
         Outil.gomme => Icons.auto_fix_normal,
         Outil.proteger => Icons.shield_outlined,
         Outil.restaurer => Icons.settings_backup_restore,
+        Outil.ligne => Icons.horizontal_rule,
+        Outil.rectangle => Icons.crop_square,
+        Outil.ellipse => Icons.circle_outlined,
         Outil.baguette => Icons.auto_fix_high,
         Outil.lasso => Icons.gesture,
         Outil.pipette => Icons.colorize,
@@ -61,6 +67,9 @@ extension OutilX on Outil {
         Outil.gomme => 'Supprime à la main (devient transparent), même si le détourage l\'aurait gardé.',
         Outil.proteger => 'Empêche le détourage de retirer ces pixels (cheveux blancs, reflets…).',
         Outil.restaurer => 'Rend l\'image d\'origine et repasse en détourage automatique.',
+        Outil.ligne => 'Glisse du début à la fin du trait ; l\'épaisseur est la taille.',
+        Outil.rectangle => 'Glisse d\'un coin à l\'autre ; plein ou contour.',
+        Outil.ellipse => 'Glisse d\'un coin à l\'autre du cadre ; pleine ou contour.',
         Outil.baguette => 'Touche une couleur : applique l\'action à toute la zone de couleur proche.',
         Outil.lasso => 'Dessine le contour d\'une zone au doigt : l\'action s\'applique à son intérieur.',
         Outil.pipette => 'Touche un pixel pour prendre sa couleur.',
@@ -119,6 +128,10 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   bool _contigu = true;
   bool _interieur = true;
   ModeRetouche _actionZone = ModeRetouche.effacer;
+  ModeRetouche _actionForme = ModeRetouche.peindre;
+  bool _rempli = false;
+  Offset? _formeA;
+  Offset? _formeB;
   Color _couleur = const Color(0xFFFFFFFF);
   final List<Color> _recentes = <Color>[];
 
@@ -336,6 +349,11 @@ class _EcranRetoucheState extends State<EcranRetouche> {
           ..clear()
           ..add(p);
         setState(() {});
+      case Outil.ligne || Outil.rectangle || Outil.ellipse:
+        setState(() {
+          _formeA = p;
+          _formeB = p;
+        });
       case Outil.baguette || Outil.pipette || Outil.main:
         break;
     }
@@ -357,6 +375,8 @@ class _EcranRetoucheState extends State<EcranRetouche> {
         if (_lasso.isEmpty || (p - _lasso.last).distance >= 3) {
           setState(() => _lasso.add(p));
         }
+      case Outil.ligne || Outil.rectangle || Outil.ellipse:
+        if (_formeA != null) setState(() => _formeB = p);
       case Outil.baguette || Outil.pipette || Outil.main:
         break;
     }
@@ -395,6 +415,28 @@ class _EcranRetoucheState extends State<EcranRetouche> {
           _rafraichir();
         }
         setState(() {});
+      case Outil.ligne || Outil.rectangle || Outil.ellipse:
+        final a = _formeA;
+        _formeA = null;
+        _formeB = null;
+        if (a != null) {
+          final ia = _versImage(a);
+          final x0 = ia.dx.floor();
+          final y0 = ia.dy.floor();
+          final x1 = pi.dx.floor();
+          final y1 = pi.dy.floor();
+          c.commencer();
+          if (_outil == Outil.ligne) {
+            c.trait(_actionForme, x0, y0, x1, y1, _taille, r: _cr, g: _cg, b: _cb);
+          } else if (_outil == Outil.rectangle) {
+            c.rectangle(_actionForme, x0, y0, x1, y1, epaisseur: _taille, rempli: _rempli, r: _cr, g: _cg, b: _cb);
+          } else {
+            c.ellipse(_actionForme, x0, y0, x1, y1, epaisseur: _taille, rempli: _rempli, r: _cr, g: _cg, b: _cb);
+          }
+          c.terminer();
+          _rafraichir();
+        }
+        setState(() {});
       case Outil.main:
         break;
     }
@@ -406,8 +448,10 @@ class _EcranRetoucheState extends State<EcranRetouche> {
       _actionOuverte = false;
       setState(() {});
     }
-    if (_lasso.isNotEmpty) {
+    if (_lasso.isNotEmpty || _formeA != null) {
       _lasso.clear();
+      _formeA = null;
+      _formeB = null;
       setState(() {});
     }
   }
@@ -878,6 +922,17 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                     curseur: _controle ? null : _curseur,
                     rayonCurseur: _taille / 2 * _echelle,
                     interieurLasso: _interieur,
+                    formeOutil: _formeA != null ? _outil : null,
+                    formeA: _formeA,
+                    formeB: _formeB,
+                    formeRempli: _rempli,
+                    formeCouleur: switch (_actionForme) {
+                      ModeRetouche.peindre => _couleur,
+                      ModeRetouche.effacer => const Color(0xAAFF1744),
+                      ModeRetouche.proteger => const Color(0xAA00C853),
+                      ModeRetouche.restaurer => const Color(0xAA2979FF),
+                    },
+                    formeEpaisseur: _taille * _echelle,
                   ),
                 ),
               ),
@@ -923,8 +978,11 @@ class _EcranRetoucheState extends State<EcranRetouche> {
 
   Widget _panneau(CalqueRetouche c) {
     final theme = Theme.of(context);
-    final peint = _outil == Outil.pinceau || (_actionZone == ModeRetouche.peindre && (_outil == Outil.baguette || _outil == Outil.lasso));
-    final tailleOutil = _outil.mode != null;
+    final forme = _outil == Outil.ligne || _outil == Outil.rectangle || _outil == Outil.ellipse;
+    final peint = _outil == Outil.pinceau ||
+        (forme && _actionForme == ModeRetouche.peindre) ||
+        (_actionZone == ModeRetouche.peindre && (_outil == Outil.baguette || _outil == Outil.lasso));
+    final tailleOutil = _outil.mode != null || forme;
     return Material(
       color: theme.colorScheme.surfaceContainer,
       elevation: 4,
@@ -1005,6 +1063,29 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                         selected: _contigu,
                         onSelected: (v) => setState(() => _contigu = v),
                       ),
+                    ],
+                  ),
+                if (forme)
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      for (final (m, nom) in <(ModeRetouche, String)>[
+                        (ModeRetouche.peindre, 'Peindre'),
+                        (ModeRetouche.effacer, 'Supprimer'),
+                        (ModeRetouche.proteger, 'Protéger'),
+                        (ModeRetouche.restaurer, 'Restaurer'),
+                      ])
+                        ChoiceChip(
+                          label: Text(nom),
+                          selected: _actionForme == m,
+                          onSelected: (_) => setState(() => _actionForme = m),
+                        ),
+                      if (_outil != Outil.ligne)
+                        FilterChip(
+                          label: Text(_rempli ? 'Plein' : 'Contour'),
+                          selected: _rempli,
+                          onSelected: (v) => setState(() => _rempli = v),
+                        ),
                     ],
                   ),
                 if (_outil == Outil.baguette || _outil == Outil.lasso) ...[
@@ -1123,6 +1204,12 @@ class _PeintreRetouche extends CustomPainter {
   final Offset? curseur;
   final double rayonCurseur;
   final bool interieurLasso;
+  final Outil? formeOutil;
+  final Offset? formeA;
+  final Offset? formeB;
+  final bool formeRempli;
+  final Color formeCouleur;
+  final double formeEpaisseur;
 
   _PeintreRetouche({
     required this.image,
@@ -1135,6 +1222,12 @@ class _PeintreRetouche extends CustomPainter {
     required this.curseur,
     required this.rayonCurseur,
     required this.interieurLasso,
+    required this.formeOutil,
+    required this.formeA,
+    required this.formeB,
+    required this.formeRempli,
+    required this.formeCouleur,
+    required this.formeEpaisseur,
   });
 
   @override
@@ -1210,6 +1303,35 @@ class _PeintreRetouche extends CustomPainter {
         Paint()
           ..strokeWidth = 1
           ..color = const Color(0x88FFFFFF),
+      );
+    }
+
+    final fa = formeA;
+    final fb = formeB;
+    if (formeOutil != null && fa != null && fb != null) {
+      final ep = formeEpaisseur < 1 ? 1.0 : formeEpaisseur;
+      final trait = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = ep
+        ..strokeCap = StrokeCap.round
+        ..color = formeCouleur;
+      final plein = Paint()..color = formeCouleur;
+      final cadre = Rect.fromPoints(fa, fb);
+      final creux = cadre.width > ep && cadre.height > ep;
+      if (formeOutil == Outil.ligne) {
+        canvas.drawLine(fa, fb, trait);
+      } else if (formeOutil == Outil.rectangle) {
+        canvas.drawRect(formeRempli || !creux ? cadre : cadre.deflate(ep / 2), formeRempli || !creux ? plein : trait);
+      } else if (formeOutil == Outil.ellipse) {
+        canvas.drawOval(formeRempli || !creux ? cadre : cadre.deflate(ep / 2), formeRempli || !creux ? plein : trait);
+      }
+      // Contour fin pour repérer le cadre quelle que soit la couleur.
+      canvas.drawRect(
+        cadre,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0x99FFFFFF),
       );
     }
 
