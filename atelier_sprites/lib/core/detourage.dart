@@ -43,25 +43,31 @@ StatsDetourage detourer(
   final w = src.width;
   final h = src.height;
 
-  // Couleur de fond estimée : moyenne des quatre coins.
-  var sr = 0;
-  var sg = 0;
-  var sb = 0;
+  // Couleur de fond estimée : moyenne des quatre coins (les coins retouchés à la
+  // main ne comptent pas, sauf si les quatre le sont).
   final coins = <List<int>>[
     [0, 0],
     [w - 1, 0],
     [0, h - 1],
     [w - 1, h - 1],
   ];
-  for (final c in coins) {
+  var retenus = <List<int>>[
+    for (final c in coins)
+      if (forces == null || forces[c[1] * w + c[0]] == 0) c,
+  ];
+  if (retenus.isEmpty) retenus = coins;
+  var sr = 0;
+  var sg = 0;
+  var sb = 0;
+  for (final c in retenus) {
     final p = src.getPixel(c[0], c[1]);
     sr += p.r.toInt();
     sg += p.g.toInt();
     sb += p.b.toInt();
   }
-  final br = sr ~/ 4;
-  final bg = sg ~/ 4;
-  final bb = sb ~/ 4;
+  final br = sr ~/ retenus.length;
+  final bg = sg ~/ retenus.length;
+  final bb = sb ~/ retenus.length;
 
   final t2 = tolerance * tolerance * 3;
 
