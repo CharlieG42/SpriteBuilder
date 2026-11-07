@@ -69,9 +69,10 @@ flutter run
      pendant le glissement), *pipette*, sélecteur de couleur **TSL + RVB + alpha** avec couleurs
      récentes, zoom à deux doigts, molette ou boutons +/− (grille de pixels affichée en zoom
      fort), **calques** (ajouter / dupliquer / supprimer / monter / descendre / masquer / renommer,
-     panneau dédié), **sélection** (rectangle, ellipse, lasso, baguette magique ; modes remplacer /
+     panneau dédié avec vignettes, **aplatir**), **sélection** (rectangle, ellipse, lasso, baguette magique ; modes remplacer /
      ajouter / soustraire / intersecter, tout / inverser / aucune ; la sélection ne limite que les
-     outils de dessin), annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
+     outils de dessin, avec **déplacement du contenu sélectionné** au doigt), préréglages de pinceau
+     (taille/opacité/dureté enregistrables), annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
    - **export PNG ou JPG** de l'image de travail (bouton partage de l'éditeur) : PNG transparent,
      ou JPG (qualité réglable, fond au choix), avec ou sans détourage automatique ; enregistrer
      dans un dossier ou partager. L'éditeur s'ouvre aussi **sans planche de sprites** depuis

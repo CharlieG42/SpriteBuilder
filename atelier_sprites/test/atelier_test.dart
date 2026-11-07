@@ -1249,5 +1249,108 @@ void main() {
       expect(c.aSelection, isTrue, reason: 'la sélection n\'est pas dans le journal pixels');
     });
   });
+
+  group('aplatir et déplacer la sélection', () {
+    CalqueRetouche doc12() {
+      final im = img.Image(width: 12, height: 12, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 2, y1: 2, x2: 9, y2: 9, color: img.ColorRgb8(200, 30, 30));
+      final brut = Uint8List(12 * 12 * 4)..setAll(0, im.getBytes(order: img.ChannelOrder.rgba));
+      return CalqueRetouche.depuis(OuvertureRetouche(12, 12, brut, Uint8List(144), Uint8List.fromList(brut)));
+    }
+
+    test('aplatir : une seule couche = composite + forces fusionnées, origine conservée', () {
+      final c = doc12();
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 0, g: 0, b: 255);
+      c.terminer();
+      c.activerCouche(0);
+      c.commencer();
+      c.tampon(ModeRetouche.proteger, 11, 11, 1);
+      c.terminer();
+      expect(c.nbCouches, 2);
+      c.aplatir();
+      expect(c.nbCouches, 1);
+      expect(c.actif, 0);
+      expect(c.pixels[0 * 4 + 2], 255, reason: 'pixel peint sur la couche du dessus, aplati');
+      expect(c.forces[11 * 12 + 11], forceProtege, reason: 'protection de la base fusionnée');
+      expect(c.pixelsComposite[(5 * 12 + 5) * 4], 200, reason: 'composite aplati = carré rouge');
+      // restaurer ramène l'image d'origine (origine de la couche de base)
+      c.commencer();
+      c.tampon(ModeRetouche.restaurer, 0, 0, 1);
+      c.terminer();
+      expect(c.pixels[0], 255, reason: 'origine conservée après aplatir');
+    });
+
+    test('aplatir ignore les couches masquées', () {
+      final c = doc12();
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 0, g: 0, b: 255);
+      c.terminer();
+      c.basculerVisibilite(1); // masquée
+      c.aplatir();
+      expect(c.pixels[0], 255, reason: 'couche masquée non aplatie : blanc d\'origine');
+    });
+
+    test('selectionBoite et extraireSelection', () {
+      final c = doc12();
+      expect(c.selectionBoite(), isNull);
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5));
+      final b = c.selectionBoite()!;
+      expect((b.x0, b.y0, b.w, b.h), (2, 2, 4, 4));
+      final t = c.extraireSelection()!;
+      expect((t.w, t.h), (4, 4));
+      expect(t.pixels[0], 200, reason: 'carré rouge extrait');
+      expect(t.pixels[3], 255);
+    });
+
+    test('deplacerSelectionContenu : source supprimée, destination protégée, annulable', () {
+      final c = doc12();
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5)); // 4×4 rouge
+      final t = c.extraireSelection()!;
+      c.deplacerSelectionContenu(t, 8, 0); // déplace de +3 en x
+      // source (2..5, 2..5) transparente + supprimée
+      expect(c.pixels[(2 * 12 + 2) * 4 + 3], 0, reason: 'source vidée');
+      expect(c.forces[2 * 12 + 2], forceSupprime);
+      // destination (5..8, 2..5) : rouge déplacé, protégé
+      expect(c.pixels[(2 * 12 + 10) * 4], 200, reason: 'destination = contenu déplacé');
+      expect(c.pixels[(2 * 12 + 10) * 4 + 3], 255);
+      expect(c.forces[2 * 12 + 10], forceProtege);
+      // composite reflète le déplacement
+      expect(c.pixelsComposite[(2 * 12 + 2) * 4 + 3], 0);
+      expect(c.pixelsComposite[(2 * 12 + 10) * 4], 200);
+      // une seule action annulable
+      expect(c.modifie, isTrue);
+      c.annuler();
+      expect(c.pixels[(2 * 12 + 2) * 4], 200, reason: 'annulation = contenu revenu');
+      expect(c.pixels[(2 * 12 + 2) * 4 + 3], 255);
+      expect(c.pixels[(2 * 12 + 10) * 4], 255, reason: 'destination restaur\u00e9e (blanc) \u00e0 l\'annulation');
+      expect(c.pixels[(2 * 12 + 10) * 4 + 3], 255);
+      expect(c.forces[2 * 12 + 2], forceAuto);
+    });
+
+    test('deplacerSelectionContenu rogne aux bords de l\'image', () {
+      final c = doc12();
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5));
+      final t = c.extraireSelection()!;
+      c.deplacerSelectionContenu(t, 8, 8); // dépasse à droite/bas
+      expect(c.pixels[(2 * 12 + 2) * 4 + 3], 0, reason: 'source vidée');
+      // destination rognée : seuls les pixels encore dans l'image sont écrits
+      expect(c.pixels[(10 * 12 + 10) * 4], 200, reason: '(10,10) = contenu d\u00e9plac\u00e9 \u00e9crit (blanc avant)');
+      expect(c.pixels[(11 * 12 + 11) * 4], 200, reason: '(11,11) aussi \u00e9crit');
+      expect(c.pixelsComposite.length, 12 * 12 * 4);
+    });
+
+    test('deplacerSelectionContenu sans sélection ne fait rien', () {
+      final c = doc12();
+      final avant = Uint8List.fromList(c.pixels);
+      c.deplacerSelectionContenu((pixels: Uint8List(4), x0: 0, y0: 0, w: 1, h: 1), 2, 2);
+      expect(c.pixels, avant);
+      expect(c.modifie, isFalse);
+    });
+  });
 }
+
 

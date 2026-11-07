@@ -286,6 +286,10 @@ enum ModeSelection { remplacer, ajouter, soustraire, intersecter }
 /// d'origine (pour « restaurer »). La couche de base reprend l'image d'origine ;
 /// les couches ajoutées partent transparentes.
 class Couche {
+  static int _prochainId = 1;
+
+  /// Identifiant stable (les vignettes du panneau des calques sont indexées dessus).
+  final int id = _prochainId++;
   String nom;
   bool visible;
   final Uint8List pixels;
@@ -1151,4 +1155,110 @@ class CalqueRetouche {
     }
     return false;
   }
+  /// Aplatit les couches visibles en UNE couche : pixels = composite, forces =
+  /// forces fusionnées, origine = celle de la couche de base (pour « restaurer »).
+  /// Opération structurelle (hors journal annuler/rétablir).
+  void aplatir() {
+    final comp = Uint8List.fromList(pixelsComposite);
+    final fc = Uint8List.fromList(forcesComposite);
+    final origineBase = Uint8List.fromList(couches.first.origine);
+    couches
+      ..clear()
+      ..add(Couche(
+        nom: 'Aplati',
+        visible: true,
+        nbPixels: nbPixels,
+        pixels: comp,
+        forces: fc,
+        origine: origineBase,
+      ));
+    _vu
+      ..clear()
+      ..add(Uint8List(nbPixels));
+    actif = 0;
+    _recalculerTout();
+  }
+
+  /// Boîte englobante de la sélection : (x0, y0, w, h), ou null sans sélection.
+  ({int x0, int y0, int w, int h})? selectionBoite() {
+    final s = selection;
+    if (s == null) return null;
+    var minX = largeur, minY = hauteur, maxX = -1, maxY = -1;
+    for (var y = 0; y < hauteur; y++) {
+      for (var x = 0; x < largeur; x++) {
+        if (s[y * largeur + x] == 1) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return null;
+    return (x0: minX, y0: minY, w: maxX - minX + 1, h: maxY - minY + 1);
+  }
+
+  /// Extrait le contenu de la couche active dans la sélection (tampon flottant),
+  /// sans rien modifier. null sans sélection.
+  ({Uint8List pixels, int x0, int y0, int w, int h})? extraireSelection() {
+    final b = selectionBoite();
+    final s = selection;
+    if (b == null || s == null) return null;
+    final buf = Uint8List(b.w * b.h * 4);
+    for (var y = 0; y < b.h; y++) {
+      for (var x = 0; x < b.w; x++) {
+        final si = (b.y0 + y) * largeur + (b.x0 + x);
+        if (s[si] == 0) continue;
+        final di = (y * b.w + x) * 4;
+        final so = si * 4;
+        buf[di] = pixels[so];
+        buf[di + 1] = pixels[so + 1];
+        buf[di + 2] = pixels[so + 2];
+        buf[di + 3] = pixels[so + 3];
+      }
+    }
+    return (pixels: buf, x0: b.x0, y0: b.y0, w: b.w, h: b.h);
+  }
+
+  /// Déplace le contenu de la sélection de (dx, dy) dans la couche active, en UNE
+  /// action annulable : la source devient transparente (supprimée), la destination
+  /// reçoit le contenu du [tampon] (extrait par [extraireSelection] en début de
+  /// geste, protégé). Le tampon est rogné aux bords de l'image.
+  void deplacerSelectionContenu(({Uint8List pixels, int x0, int y0, int w, int h}) tampon, int dx, int dy) {
+    final s = selection;
+    if (s == null) return;
+    commencer();
+    for (var i = 0; i < nbPixels; i++) {
+      if (s[i] == 1 && pixels[i * 4 + 3] != 0) {
+        _noter(i);
+        pixels[i * 4 + 3] = 0;
+        forces[i] = forceSupprime;
+        _compositeAjour = false;
+        _majAffichage(i);
+      }
+    }
+    for (var y = 0; y < tampon.h; y++) {
+      for (var x = 0; x < tampon.w; x++) {
+        final si = (tampon.y0 + y) * largeur + (tampon.x0 + x);
+        if (s[si] == 0) continue;
+        final di = (y * tampon.w + x) * 4;
+        if (tampon.pixels[di + 3] == 0) continue;
+        final tx = tampon.x0 + x + dx;
+        final ty = tampon.y0 + y + dy;
+        if (tx < 0 || ty < 0 || tx >= largeur || ty >= hauteur) continue;
+        final i = ty * largeur + tx;
+        _noter(i);
+        final o = i * 4;
+        pixels[o] = tampon.pixels[di];
+        pixels[o + 1] = tampon.pixels[di + 1];
+        pixels[o + 2] = tampon.pixels[di + 2];
+        pixels[o + 3] = tampon.pixels[di + 3];
+        forces[i] = forceProtege;
+        _compositeAjour = false;
+        _majAffichage(i);
+      }
+    }
+    terminer();
+  }
 }
+

@@ -35,7 +35,7 @@ class ResultatRetouche {
   const ResultatRetouche(this.octets, this.forces, this.vide);
 }
 
-enum Outil { pinceau, gomme, degrade, remplissage, ligne, rectangle, ellipse, lasso, baguette, pipette, proteger, restaurer, main, selRect, selEllipse, selLasso, selBaguette }
+enum Outil { pinceau, gomme, degrade, remplissage, ligne, rectangle, ellipse, lasso, baguette, pipette, proteger, restaurer, main, selRect, selEllipse, selLasso, selBaguette, deplacerSel }
 
 /// Axes de symétrie du dessin (miroir façon multibrush de Krita), centrés sur l'image.
 enum Symetrie { aucune, horizontale, verticale, lesDeux }
@@ -54,7 +54,7 @@ const List<List<Outil>> groupesOutils = <List<Outil>>[
   <Outil>[Outil.pinceau, Outil.gomme, Outil.degrade, Outil.remplissage],
   <Outil>[Outil.ligne, Outil.rectangle, Outil.ellipse],
   <Outil>[Outil.lasso, Outil.baguette],
-  <Outil>[Outil.selRect, Outil.selEllipse, Outil.selLasso, Outil.selBaguette],
+  <Outil>[Outil.selRect, Outil.selEllipse, Outil.selLasso, Outil.selBaguette, Outil.deplacerSel],
   <Outil>[Outil.pipette, Outil.proteger, Outil.restaurer, Outil.main],
 ];
 
@@ -75,6 +75,7 @@ extension OutilX on Outil {
         Outil.selEllipse => 'Sélection ellipse',
         Outil.selLasso => 'Sélection lasso',
         Outil.selBaguette => 'Sélection magique',
+        Outil.deplacerSel => 'Déplacer contenu',
         Outil.pipette => 'Pipette',
         Outil.main => 'Déplacer',
       };
@@ -95,6 +96,7 @@ extension OutilX on Outil {
         Outil.selEllipse => Icons.radio_button_unchecked,
         Outil.selLasso => Icons.polyline_outlined,
         Outil.selBaguette => Icons.filter_center_focus,
+        Outil.deplacerSel => Icons.open_with,
         Outil.pipette => Icons.colorize,
         Outil.main => Icons.pan_tool_alt_outlined,
       };
@@ -115,6 +117,7 @@ extension OutilX on Outil {
         Outil.selEllipse => 'Glisse d\'un coin à l\'autre du cadre : sélectionne l\'ellipse.',
         Outil.selLasso => 'Dessine le contour au doigt : sélectionne l\'intérieur.',
         Outil.selBaguette => 'Touche une couleur du composite : sélectionne la zone de couleur proche (tolérance réglable, contigu ou non).',
+        Outil.deplacerSel => 'Sélectionne d\'abord une zone, puis glisse : son contenu se déplace dans la couche active (une action annulable, aperçu du cadre).',
         Outil.pipette => 'Touche un pixel pour prendre sa couleur (revient au pinceau).',
         Outil.main => 'Déplace la vue au doigt. Pince à deux doigts pour zoomer avec n\'importe quel outil.',
       };
@@ -172,6 +175,24 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   bool _lissage = true;
   Symetrie _symetrie = Symetrie.aucune;
   ModeSelection _modeSelection = ModeSelection.remplacer;
+
+  /// Préréglages de pinceau (taille / opacité / dureté), façon presets de Krita.
+  final List<({String nom, int taille, double opacite, double durete})> _presets = <({String nom, int taille, double opacite, double durete})>[
+    (nom: 'Fin', taille: 2, opacite: 1.0, durete: 1.0),
+    (nom: 'Moyen', taille: 8, opacite: 1.0, durete: 0.85),
+    (nom: 'Gros', taille: 20, opacite: 1.0, durete: 0.7),
+    (nom: 'Doux', taille: 40, opacite: 0.6, durete: 0.3),
+    (nom: 'Estompe', taille: 16, opacite: 0.35, durete: 0.0),
+  ];
+
+  /// Tampon flottant du « déplacer contenu de sélection » + son décalage courant.
+  ({Uint8List pixels, int x0, int y0, int w, int h})? _flottant;
+  Offset? _departFlottant;
+  Offset? _decalFlottant;
+
+  /// Vignettes du panneau des calques (indexées par Couche.id).
+  final Map<int, ui.Image> _vignettes = <int, ui.Image>{};
+  bool _calquesOuvert = false;
   int _tolerance = 30;
   bool _contigu = true;
   bool _interieur = true;
@@ -219,6 +240,8 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   final List<Offset> _lasso = <Offset>[];
   bool _actionOuverte = false;
   List<double> _contour = const <double>[];
+
+  bool get _estDeplacerSel => _outil == Outil.deplacerSel;
 
   @override
   void initState() {
@@ -303,6 +326,49 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   /// Recalcule le contour affiché de la sélection courante.
   void _majContour() {
     _contour = _c?.contourSelection() ?? const <double>[];
+  }
+
+  /// Recalcule les vignettes des couches pour le panneau des calques.
+  void _rafraichirVignettes() {
+    final c = _c;
+    if (c == null) return;
+    const cote = 44;
+    final echelle = cote / math.max(c.largeur, c.hauteur);
+    final w = math.max(1, (c.largeur * echelle).round());
+    final h = math.max(1, (c.hauteur * echelle).round());
+    for (final couche in c.couches) {
+      final buf = Uint8List(w * h * 4);
+      for (var y = 0; y < h; y++) {
+        final sy = math.min(c.hauteur - 1, (y / h * c.hauteur).floor());
+        for (var x = 0; x < w; x++) {
+          final sx = math.min(c.largeur - 1, (x / w * c.largeur).floor());
+          final so = (sy * c.largeur + sx) * 4;
+          final di = (y * w + x) * 4;
+          buf[di] = couche.pixels[so];
+          buf[di + 1] = couche.pixels[so + 1];
+          buf[di + 2] = couche.pixels[so + 2];
+          buf[di + 3] = couche.pixels[so + 3];
+        }
+      }
+      ui.decodeImageFromPixels(buf, w, h, ui.PixelFormat.rgba8888, (image) {
+        if (!mounted) {
+          image.dispose();
+          return;
+        }
+        final ancienne = _vignettes[couche.id];
+        _vignettes[couche.id] = image;
+        ancienne?.dispose();
+        if (_calquesOuvert) setState(() {});
+      });
+    }
+  }
+
+  /// Cadre (coordonnées image) du contenu de sélection en cours de déplacement.
+  Rect? _apercuDeplacement() {
+    final f = _flottant;
+    final d = _decalFlottant;
+    if (f == null || d == null) return null;
+    return Rect.fromLTWH(f.x0 + d.dx, f.y0 + d.dy, f.w.toDouble(), f.h.toDouble());
   }
 
   // --------------------------------------------------------------------------------------------
@@ -479,6 +545,11 @@ class _EcranRetoucheState extends State<EcranRetouche> {
           _formeA = p;
           _formeB = p;
         });
+      case Outil.deplacerSel:
+        _flottant = c.aSelection ? c.extraireSelection() : null;
+        _departFlottant = pi;
+        _decalFlottant = Offset.zero;
+        setState(() {});
       case Outil.baguette || Outil.remplissage || Outil.pipette || Outil.main || Outil.selBaguette:
         break;
     }
@@ -507,6 +578,10 @@ class _EcranRetoucheState extends State<EcranRetouche> {
         }
       case Outil.ligne || Outil.rectangle || Outil.ellipse || Outil.degrade || Outil.selRect || Outil.selEllipse:
         if (_formeA != null) setState(() => _formeB = p);
+      case Outil.deplacerSel:
+        if (_flottant != null && _departFlottant != null) {
+          setState(() => _decalFlottant = pi - _departFlottant!);
+        }
       case Outil.baguette || Outil.remplissage || Outil.pipette || Outil.main || Outil.selBaguette:
         break;
     }
@@ -615,6 +690,17 @@ class _EcranRetoucheState extends State<EcranRetouche> {
           }
         }
         setState(() {});
+      case Outil.deplacerSel:
+        final f = _flottant;
+        final d = _decalFlottant ?? Offset.zero;
+        _flottant = null;
+        _departFlottant = null;
+        _decalFlottant = null;
+        if (f != null && (d.dx.abs() > 0.5 || d.dy.abs() > 0.5)) {
+          c.deplacerSelectionContenu(f, d.dx.round(), d.dy.round());
+          _rafraichir();
+        }
+        setState(() {});
       case Outil.main:
         break;
     }
@@ -632,6 +718,10 @@ class _EcranRetoucheState extends State<EcranRetouche> {
       _formeB = null;
       setState(() {});
     }
+    _flottant = null;
+    _departFlottant = null;
+    _decalFlottant = null;
+    if (_calquesOuvert) _rafraichirVignettes();
   }
 
   void _choisirCouleur(Color c) {
@@ -1170,6 +1260,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                     formeEpaisseur: _taille * _echelle,
                     grille: _echelle >= 8,
                     contour: _contour,
+                    deplacementSel: _apercuDeplacement(),
                   ),
                 ),
               ),
@@ -1234,6 +1325,8 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   Future<void> _panneauCalques() async {
     final c = _c;
     if (c == null) return;
+    _calquesOuvert = true;
+    _rafraichirVignettes();
     await showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -1265,14 +1358,24 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                     return ListTile(
                       dense: true,
                       selected: active,
-                      leading: IconButton(
-                        tooltip: couche.visible ? 'Masquer' : 'Afficher',
-                        icon: Icon(couche.visible ? Icons.visibility : Icons.visibility_off),
-                        onPressed: () {
-                          c.basculerVisibilite(rev);
-                          _rafraichir();
-                          setS(() {});
-                        },
+                      leading: SizedBox(
+                        width: 92,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: couche.visible ? 'Masquer' : 'Afficher',
+                              icon: Icon(couche.visible ? Icons.visibility : Icons.visibility_off),
+                              onPressed: () {
+                                c.basculerVisibilite(rev);
+                                _rafraichir();
+                                _rafraichirVignettes();
+                                setS(() {});
+                              },
+                            ),
+                            _vignetteCouche(couche),
+                          ],
+                        ),
                       ),
                       title: Text(
                         couche.nom,
@@ -1303,6 +1406,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                       onPressed: () {
                         c.ajouterCouche();
                         _rafraichir();
+                        _rafraichirVignettes();
                         setS(() {});
                       },
                     ),
@@ -1312,6 +1416,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                       onPressed: () {
                         c.dupliquerCouche();
                         _rafraichir();
+                        _rafraichirVignettes();
                         setS(() {});
                       },
                     ),
@@ -1326,6 +1431,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                           return;
                         }
                         _rafraichir();
+                        _rafraichirVignettes();
                         setS(() {});
                       },
                     ),
@@ -1335,6 +1441,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                       onPressed: () {
                         c.deplacerCouche(1);
                         _rafraichir();
+                        _rafraichirVignettes();
                         setS(() {});
                       },
                     ),
@@ -1344,6 +1451,30 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                       onPressed: () {
                         c.deplacerCouche(-1);
                         _rafraichir();
+                        _rafraichirVignettes();
+                        setS(() {});
+                      },
+                    ),
+                    IconButton(
+                      tooltip: 'Aplatir : fusionner les couches visibles en une seule',
+                      icon: const Icon(Icons.layers_clear),
+                      onPressed: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Aplatir les calques ?'),
+                            content: const Text('Toutes les couches visibles sont fusionnées en une seule (opération non annulable).'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+                              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aplatir')),
+                            ],
+                          ),
+                        );
+                        if (ok != true) return;
+                        c.aplatir();
+                        _rafraichirVignettes();
+                        _rafraichir();
+                        _rafraichirVignettes();
                         setS(() {});
                       },
                     ),
@@ -1356,6 +1487,8 @@ class _EcranRetoucheState extends State<EcranRetouche> {
         ),
       ),
     );
+    _calquesOuvert = false;
+    if (mounted) setState(() {});
   }
 
   /// Renomme une couche (appui long dans le panneau des calques).
@@ -1382,6 +1515,59 @@ class _EcranRetoucheState extends State<EcranRetouche> {
     setState(() {
       c.renommerCouche(i, nom);
     });
+  }
+
+  /// Enregistre les réglages actuels du pinceau comme préréglage (taille/opacité/dureté).
+  Future<void> _ajouterPreset() async {
+    final ctrl = TextEditingController(text: 'Préréglage ${_presets.length + 1}');
+    final nom = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nouveau préréglage'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: 'Nom',
+            suffixText: '${_taille}px ${(_opacite * 100).round()}% ${(_durete * 100).round()}%',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Enregistrer')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (nom == null || nom.isEmpty || !mounted) return;
+    setState(() {
+      _presets.add((nom: nom, taille: _taille, opacite: _opacite, durete: _durete));
+    });
+  }
+
+  /// Vignette 40×40 d'une couche, posée sur un damier (icône tant qu'elle n'est
+  /// pas calculée).
+  Widget _vignetteCouche(Couche couche) {
+    final v = _vignettes[couche.id];
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              const Damier(taille: 8),
+              v == null
+                  ? const Center(child: Icon(Icons.image_outlined, size: 18))
+                  : RawImage(image: v, fit: BoxFit.cover, filterQuality: FilterQuality.none),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _toolbox(CalqueRetouche c) {
@@ -1482,6 +1668,9 @@ class _EcranRetoucheState extends State<EcranRetouche> {
               ] else ...[
                 Text(_outil.libelle, style: theme.textTheme.titleSmall),
                 Text(_outil.aide, style: theme.textTheme.bodySmall),
+                if (_estDeplacerSel && !c.aSelection)
+                  Text('Sélectionne d\'abord une zone avec les outils de sélection.',
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
                 if (tailleOutil)
                   _ligneReglage('Taille', '$_taille px', _taille.toDouble(), 1, 80, 79,
                       (v) => setState(() => _taille = v.round())),
@@ -1491,6 +1680,30 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                 if (_aDurete)
                   _ligneReglage('Dureté', '${(_durete * 100).round()} %', _durete, 0, 1, 20,
                       (v) => setState(() => _durete = v)),
+                if (_estBrosse || _outil == Outil.ligne || _outil == Outil.degrade)
+                  Wrap(
+                    spacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      for (final p in _presets)
+                        GestureDetector(
+                          onLongPress: () => setState(() => _presets.remove(p)),
+                          child: ActionChip(
+                            label: Text('${p.nom} ${p.taille}px'),
+                            onPressed: () => setState(() {
+                              _taille = p.taille;
+                              _opacite = p.opacite;
+                              _durete = p.durete;
+                            }),
+                          ),
+                        ),
+                      ActionChip(
+                        avatar: const Icon(Icons.add, size: 18),
+                        label: const Text('Préréglage'),
+                        onPressed: _ajouterPreset,
+                      ),
+                    ],
+                  ),
                 if (_estBrosse)
                   Wrap(
                     spacing: 6,
@@ -1762,6 +1975,7 @@ class _PeintreRetouche extends CustomPainter {
   final double formeEpaisseur;
   final bool grille;
   final List<double> contour;
+  final Rect? deplacementSel;
 
   _PeintreRetouche({
     required this.image,
@@ -1783,6 +1997,7 @@ class _PeintreRetouche extends CustomPainter {
     required this.formeEpaisseur,
     required this.grille,
     required this.contour,
+    required this.deplacementSel,
   });
 
   @override
@@ -1871,6 +2086,25 @@ class _PeintreRetouche extends CustomPainter {
         canvas.drawLine(a, b, pFonce);
         canvas.drawLine(a, b, pClair);
       }
+    }
+
+    // Aperçu du déplacement du contenu de la sélection : cadre déplacé.
+    final dep = deplacementSel;
+    if (dep != null) {
+      final r = Rect.fromLTWH(
+        decalage.dx + dep.left * echelle,
+        decalage.dy + dep.top * echelle,
+        dep.width * echelle,
+        dep.height * echelle,
+      );
+      canvas.drawRect(r, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = const Color(0xFF000000));
+      canvas.drawRect(r, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = const Color(0xFFFFFFFF));
     }
 
     if (lasso.length >= 2) {
