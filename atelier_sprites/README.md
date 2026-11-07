@@ -68,7 +68,10 @@ flutter run
      (tolérance, contigu ou non), *lasso* (intérieur ou extérieur), *ligne*, *rectangle* et *ellipse* (pleins ou contours, avec aperçu
      pendant le glissement), *pipette*, sélecteur de couleur **TSL + RVB + alpha** avec couleurs
      récentes, zoom à deux doigts, molette ou boutons +/− (grille de pixels affichée en zoom
-     fort), annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
+     fort), **calques** (ajouter / dupliquer / supprimer / monter / descendre / masquer / renommer,
+     panneau dédié), **sélection** (rectangle, ellipse, lasso, baguette magique ; modes remplacer /
+     ajouter / soustraire / intersecter, tout / inverser / aucune ; la sélection ne limite que les
+     outils de dessin), annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
    - **export PNG ou JPG** de l'image de travail (bouton partage de l'éditeur) : PNG transparent,
      ou JPG (qualité réglable, fond au choix), avec ou sans détourage automatique ; enregistrer
      dans un dossier ou partager. L'éditeur s'ouvre aussi **sans planche de sprites** depuis
