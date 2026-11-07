@@ -58,7 +58,8 @@ class HomeScreen extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     'Sans passer par les sprites : ouvre une image (ou pars d\'une page vierge), '
-                    'dessine, détoure à la main, puis exporte en PNG ou JPG.',
+                    'dessine (pinceau doux, dégradé, remplissage, symétrie miroir, calques, '
+                    'sélection…), détoure à la main, puis exporte en PNG ou JPG.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 8),

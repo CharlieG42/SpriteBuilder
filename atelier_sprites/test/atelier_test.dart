@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:atelier_sprites/core/animations.dart';
+import 'package:atelier_sprites/core/couleur.dart';
 import 'package:atelier_sprites/core/decoupe.dart';
 import 'package:atelier_sprites/core/detourage.dart';
 import 'package:atelier_sprites/core/doublons.dart';
@@ -854,4 +855,502 @@ void main() {
       expect(sortie.getPixel(3, 3).a.toInt(), 255);
     });
   });
+
+  group('pinceau avancé : opacité, dureté, dégradé, TSL', () {
+    CalqueRetouche calqueVide(int w, int h) {
+      final brut = Uint8List(w * h * 4);
+      return CalqueRetouche.depuis(OuvertureRetouche(w, h, brut, Uint8List(w * h), Uint8List.fromList(brut)));
+    }
+
+    CalqueRetouche calqueBlanc(int w, int h) {
+      final im = img.Image(width: w, height: h, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      final brut = Uint8List(w * h * 4)..setAll(0, im.getBytes(order: img.ChannelOrder.rgba));
+      return CalqueRetouche.depuis(OuvertureRetouche(w, h, brut, Uint8List(w * h), Uint8List.fromList(brut)));
+    }
+
+    test('poidsBrosse : bord net à dureté 1, fondu doux à 0', () {
+      expect(poidsBrosse(0, 1), 1);
+      expect(poidsBrosse(0.999, 1), 1);
+      expect(poidsBrosse(1, 1), 0);
+      expect(poidsBrosse(1.2, 0), 0);
+      expect(poidsBrosse(0.5, 0), closeTo(0.5, 0.01)); // smoothstep(0.5) = 0.5
+      expect(poidsBrosse(0.5, 0.8), 1, reason: 'dans la zone dure');
+      expect(poidsBrosse(0.9, 0), lessThan(0.2), reason: 'presque au bord, fondu faible');
+    });
+
+    test('tampon doux : plein au centre, fondu au bord', () {
+      final c = calqueVide(9, 9);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 4, 4, 9, r: 200, g: 0, b: 0, durete: 0);
+      c.terminer();
+      const centre = (4 * 9 + 4) * 4;
+      expect(c.pixels[centre + 3], 255, reason: 'centre opaque');
+      expect(c.pixels[centre], 200);
+      const bord = (4 * 9 + 8) * 4; // q = 4/4.5 ≈ 0.89
+      expect(c.pixels[bord + 3], inInclusiveRange(1, 120), reason: 'bord en fondu');
+      expect(c.forces[4 * 9 + 4], forceProtege);
+    });
+
+    test('opacité : deux passages à 50 % ne rendent pas opaque', () {
+      final c = calqueVide(4, 4);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 10, g: 20, b: 30, opacite: 0.5);
+      c.terminer();
+      const o = (1 * 4 + 1) * 4;
+      final a1 = c.pixels[o + 3];
+      expect(a1, inInclusiveRange(120, 135));
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 10, g: 20, b: 30, opacite: 0.5);
+      c.terminer();
+      final a2 = c.pixels[o + 3];
+      expect(a2, greaterThan(a1));
+      expect(a2, lessThan(255));
+    });
+
+    test('peindre à 50 % sur blanc opaque : mélange de couleur, alpha à 255', () {
+      final c = calqueBlanc(4, 4);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 200, g: 0, b: 0, opacite: 0.5);
+      c.terminer();
+      const o = (1 * 4 + 1) * 4;
+      expect(c.pixels[o + 3], 255, reason: 'sur opaque, l\'alpha reste à 255');
+      expect(c.pixels[o], inInclusiveRange(224, 232), reason: 'mélange 50 % : (255+200)/2 ≈ 227');
+      expect(c.pixels[o + 1], inInclusiveRange(120, 135));
+    });
+
+    test('gomme douce : alpha réduit et pixel protégé ; à fond, supprimé', () {
+      final c = calqueBlanc(4, 4);
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 1, 1, 1, opacite: 0.5);
+      c.terminer();
+      const o = (1 * 4 + 1) * 4;
+      expect(c.pixels[o + 3], inInclusiveRange(120, 135));
+      expect(c.forces[1 * 4 + 1], forceProtege, reason: 'effacement partiel = protégé du détourage');
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 1, 1, 1);
+      c.terminer();
+      expect(c.pixels[o + 3], 0);
+      expect(c.forces[1 * 4 + 1], forceSupprime);
+    });
+
+    test('dégradé : couleur interpolée du début à la fin', () {
+      final c = calqueVide(10, 1);
+      c.commencer();
+      c.traitDegrade(0, 0, 9, 0, 1, c0: (r: 255, g: 0, b: 0, a: 255), c1: (r: 0, g: 0, b: 255, a: 255));
+      c.terminer();
+      expect(c.couleurEn(0, 0)!.r, greaterThan(240));
+      expect(c.couleurEn(0, 0)!.b, lessThan(20));
+      expect(c.couleurEn(9, 0)!.b, greaterThan(240));
+      expect(c.couleurEn(9, 0)!.r, lessThan(20));
+      final milieu = c.couleurEn(4, 0)!; // t = 4/9
+      expect(milieu.r, inInclusiveRange(120, 160));
+      expect(milieu.b, inInclusiveRange(90, 140));
+      expect(c.couleurEn(0, 0)!.r, isNot(c.couleurEn(9, 0)!.r));
+    });
+
+    test('dégradé vers transparent : fondu effaçant (alpha décroissant)', () {
+      final c = calqueBlanc(10, 1);
+      c.commencer();
+      c.traitDegrade(0, 0, 9, 0, 1, c0: (r: 255, g: 0, b: 0, a: 255), c1: (r: 0, g: 0, b: 0, a: 0));
+      c.terminer();
+      expect(c.pixels[0 * 4 + 3], 255, reason: 'début opaque');
+      expect(c.pixels[9 * 4 + 3], 0, reason: 'fin transparente');
+      expect(c.pixels[4 * 4 + 3], inInclusiveRange(80, 170), reason: 'milieu à moitié fondu');
+    });
+
+    test('annuler / rétablir avec une brosse douce et semi-transparente', () {
+      final c = calqueBlanc(6, 6);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 3, 3, 5, r: 0, g: 0, b: 255, durete: 0, opacite: 0.7);
+      c.terminer();
+      expect(c.modifie, isTrue);
+      expect(c.couleurEn(3, 3)!.b, 255);
+      expect(c.couleurEn(3, 3)!.r, lessThan(100), reason: 'mélangé à 70 % avec le blanc');
+      c.annuler();
+      expect(c.couleurEn(3, 3), (r: 255, g: 255, b: 255));
+      expect(c.forces.every((f) => f == forceAuto), isTrue);
+      c.retablir();
+      expect(c.couleurEn(3, 3)!.b, 255);
+      expect(c.couleurEn(3, 3)!.r, lessThan(100));
+    });
+
+    test('TSL : couleurs primaires et aller-retour RVB -> TSL -> RVB', () {
+      expect(tslVersRgb(0, 1, 0.5), (r: 255, g: 0, b: 0));
+      expect(tslVersRgb(120, 1, 0.5), (r: 0, g: 255, b: 0));
+      expect(tslVersRgb(240, 1, 0.5), (r: 0, g: 0, b: 255));
+      final t = rgbVersTsl(255, 0, 0);
+      expect(t.h, 0);
+      expect(t.s, 1);
+      expect(t.l, 0.5);
+      for (final (r, g, b) in <(int, int, int)>[(200, 30, 30), (10, 20, 30), (255, 255, 255), (0, 0, 0), (1, 128, 250)]) {
+        final t2 = rgbVersTsl(r, g, b);
+        final c = tslVersRgb(t2.h, t2.s, t2.l);
+        expect((c.r - r).abs(), lessThanOrEqualTo(2), reason: 'r de ($r, $g, $b)');
+        expect((c.g - g).abs(), lessThanOrEqualTo(2), reason: 'g de ($r, $g, $b)');
+        expect((c.b - b).abs(), lessThanOrEqualTo(2), reason: 'b de ($r, $g, $b)');
+      }
+    });
+
+    test('palette de base : ARGB valides', () {
+      expect(paletteBase.length, greaterThanOrEqualTo(10));
+      for (final c in paletteBase) {
+        expect((c >> 24) & 0xFF, 255, reason: 'opaque');
+      }
+    });
+  });
+
+  group('calques', () {
+    CalqueRetouche docBlanc(int w, int h) {
+      final im = img.Image(width: w, height: h, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      final brut = Uint8List(w * h * 4)..setAll(0, im.getBytes(order: img.ChannelOrder.rgba));
+      return CalqueRetouche.depuis(OuvertureRetouche(w, h, brut, Uint8List(w * h), Uint8List.fromList(brut)));
+    }
+
+    test('une couche = rétrocompatible : pixels/forces/composite = la couche', () {
+      final c = docBlanc(4, 4);
+      expect(c.nbCouches, 1);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 9, g: 8, b: 7);
+      c.terminer();
+      expect(c.pixels[(1 * 4 + 1) * 4], 9);
+      expect(c.forces[1 * 4 + 1], forceProtege);
+      expect(c.pixelsComposite[(1 * 4 + 1) * 4], 9, reason: 'composite = la seule couche');
+    });
+
+    test('peindre sur la couche du dessus : composite mélangé, base intacte', () {
+      final c = docBlanc(4, 4);
+      c.ajouterCouche(nom: 'dessus');
+      expect(c.nbCouches, 2);
+      expect(c.actif, 1);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 200, g: 0, b: 0, opacite: 0.5);
+      c.terminer();
+      const o = (1 * 4 + 1) * 4;
+      expect(c.couche(0).pixels[o], 255, reason: 'base inchangée');
+      expect(c.pixelsComposite[o], inInclusiveRange(224, 232), reason: 'composite = 50 % de rouge sur blanc');
+      expect(c.pixelsComposite[o + 3], 255);
+      expect(c.couleurEn(1, 1)!.r, inInclusiveRange(224, 232), reason: 'la pipette lit le composite');
+    });
+
+    test('masquer la couche du dessus : le composite redevient la base', () {
+      final c = docBlanc(4, 4);
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 0, g: 0, b: 0);
+      c.terminer();
+      expect(c.pixelsComposite[0], 0, reason: 'couche du dessus noire opaque');
+      c.basculerVisibilite(1);
+      expect(c.pixelsComposite[0], 255, reason: 'couche masquée : composite = base blanche');
+      c.basculerVisibilite(1);
+      expect(c.pixelsComposite[0], 0);
+    });
+
+    test('forces au composite : la couche visible la plus haute gagne', () {
+      final c = docBlanc(4, 4);
+      c.activerCouche(0);
+      c.commencer();
+      c.tampon(ModeRetouche.proteger, 0, 0, 1);
+      c.terminer();
+      expect(c.forcesComposite[0], forceProtege);
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 10, g: 10, b: 10);
+      c.terminer();
+      expect(c.forcesComposite[0], forceProtege, reason: 'peindre sur le dessus = protégé');
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 0, 0, 1);
+      c.terminer();
+      expect(c.forcesComposite[0], forceSupprime, reason: 'gomme sur le dessus = supprimé au composite');
+      expect(c.couche(1).pixels[3], 0);
+      c.basculerVisibilite(1);
+      expect(c.forcesComposite[0], forceProtege, reason: 'couche du dessus masquée : force de la base');
+      expect(c.pixelsComposite[0], 255, reason: 'composite = base blanche');
+    });
+
+    test('annuler / rétablir traverse les couches', () {
+      final c = docBlanc(4, 4);
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 2, 2, 1, r: 1, g: 2, b: 3);
+      c.terminer();
+      const o = (2 * 4 + 2) * 4;
+      expect(c.couche(1).pixels[o], 1);
+      c.annuler();
+      expect(c.couche(1).pixels[o + 3], 0, reason: 'couche du dessus revenue transparente');
+      expect(c.pixelsComposite[o], 255, reason: 'composite = base');
+      c.retablir();
+      expect(c.couche(1).pixels[o], 1);
+      expect(c.pixelsComposite[o], 1);
+    });
+
+    test('ajouter / dupliquer / déplacer / supprimer / renommer des couches', () {
+      final c = docBlanc(4, 4);
+      c.ajouterCouche(nom: 'A');
+      c.ajouterCouche(nom: 'B');
+      expect(c.nbCouches, 3);
+      expect(c.actif, 2);
+      c.renommerCouche(2, 'C');
+      expect(c.couche(2).nom, 'C');
+      c.deplacerCouche(-1);
+      expect(c.actif, 1);
+      expect(c.couche(1).nom, 'C');
+      final dup = c.dupliquerCouche();
+      expect(c.nbCouches, 4);
+      expect(c.couche(dup).nom, 'C copie');
+      expect(c.supprimerCouche(), isTrue);
+      expect(c.nbCouches, 3);
+      c.activerCouche(0);
+      expect(c.supprimerCouche(), isTrue);
+      expect(c.supprimerCouche(), isTrue);
+      expect(c.supprimerCouche(), isFalse, reason: 'la dernière couche est intouchable');
+      expect(c.nbCouches, 1);
+    });
+
+    test('toutRestaurer remet toutes les couches à l\'origine (une action annulable)', () {
+      final c = docBlanc(4, 4);
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 5, g: 5, b: 5);
+      c.terminer();
+      c.activerCouche(0);
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 2, 2, 1);
+      c.terminer();
+      expect(c.aDesForces, isTrue);
+      c.toutRestaurer();
+      expect(c.aDesForces, isFalse);
+      expect(c.couche(1).pixels[(1 * 4 + 1) * 4 + 3], 0, reason: 'couche ajoutée : origine = transparent');
+      expect(c.couche(0).pixels[(2 * 4 + 2) * 4 + 3], 255, reason: 'base : origine = blanc');
+      expect(c.modifie, isTrue, reason: 'restaurable en une annulation');
+      c.annuler();
+      expect(c.aDesForces, isTrue);
+    });
+
+    test('le contrôle du détourage voit le composite aplati', () {
+      final c = docBlanc(6, 6); // fond blanc
+      c.ajouterCouche();
+      c.commencer();
+      c.rectangle(ModeRetouche.peindre, 2, 2, 3, 3, epaisseur: 1, rempli: true, r: 200, g: 30, b: 30);
+      c.terminer();
+      final brut = controleDetourage(DemandeControle(
+        largeur: 6,
+        hauteur: 6,
+        pixels: c.pixelsComposite,
+        forces: c.forcesComposite,
+        tolerance: 30,
+        douceur: 1.0,
+        decontaminer: false,
+        interieurs: true,
+        aireMinInterieur: 24,
+        rognage: 0,
+      ));
+      expect(brut[0 * 4 + 3], 0, reason: 'fond blanc retiré');
+      expect(brut[(2 * 6 + 2) * 4 + 3], 255, reason: 'carré rouge de la couche du dessus conservé');
+    });
+  });
+
+  group('sélection', () {
+    CalqueRetouche docSel({bool isole = false}) {
+      final im = img.Image(width: 12, height: 12, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 2, y1: 2, x2: 9, y2: 9, color: img.ColorRgb8(200, 30, 30));
+      if (isole) img.fillRect(im, x1: 11, y1: 11, x2: 11, y2: 11, color: img.ColorRgb8(200, 30, 30));
+      final brut = Uint8List(12 * 12 * 4)..setAll(0, im.getBytes(order: img.ChannelOrder.rgba));
+      return CalqueRetouche.depuis(OuvertureRetouche(12, 12, brut, Uint8List(144), Uint8List.fromList(brut)));
+    }
+
+    test('masques rectangle / ellipse / polygone', () {
+      final c = docSel();
+      expect(c.masqueRectangle(1, 1, 4, 4).where((v) => v == 1).length, 16);
+      final e = c.masqueEllipse(2, 2, 9, 9);
+      expect(e[5 * 12 + 5], 1, reason: 'centre de l\'ellipse');
+      expect(e[2 * 12 + 2], 0, reason: 'coin du cadre hors de l\'ellipse');
+      expect(c.masquePolygone(<double>[2, 2, 6, 2, 6, 6, 2, 6]).where((v) => v == 1).length, 16);
+      final dehors = c.masquePolygone(<double>[2, 2, 6, 2, 6, 6, 2, 6], interieur: false);
+      expect(dehors[3 * 12 + 3], 0);
+      expect(dehors[0], 1);
+    });
+
+    test('masqueBaguette sur le composite (contigu ou non)', () {
+      final c = docSel(isole: true);
+      expect(c.masqueBaguette(4, 4, tolerance: 10, contigu: true).where((v) => v == 1).length, 64);
+      final m = c.masqueBaguette(4, 4, tolerance: 10, contigu: true);
+      expect(m[11 * 12 + 11], 0, reason: 'rouge isolé non contigu');
+      expect(c.masqueBaguette(4, 4, tolerance: 10, contigu: false)[11 * 12 + 11], 1);
+    });
+
+    test('appliquerSelection : remplacer / ajouter / soustraire / intersecter / inverser', () {
+      final c = docSel();
+      c.appliquerSelection(c.masqueRectangle(0, 0, 3, 3));
+      expect(c.selection!.where((v) => v == 1).length, 16);
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5), mode: ModeSelection.ajouter);
+      expect(c.selection!.where((v) => v == 1).length, 28, reason: '16 + 16 − 4 de chevauchement');
+      c.appliquerSelection(c.masqueRectangle(0, 0, 1, 1), mode: ModeSelection.soustraire);
+      expect(c.selection!.where((v) => v == 1).length, 24);
+      c.appliquerSelection(c.masqueRectangle(0, 0, 3, 3), mode: ModeSelection.intersecter);
+      expect(c.selection!.where((v) => v == 1).length, 12, reason: '4×4 moins le 2×2 soustrait');
+      c.selectionInverser();
+      expect(c.selection!.where((v) => v == 1).length, 144 - 12);
+      c.selectionTout();
+      expect(c.selection!.where((v) => v == 1).length, 144);
+      c.selectionRien();
+      expect(c.aSelection, isFalse);
+    });
+
+    test('les outils ne touchent que la sélection', () {
+      final c = docSel();
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5));
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 3, r: 0, g: 0, b: 255); // hors sélection
+      c.terminer();
+      expect(c.couleurEn(0, 0), (r: 255, g: 255, b: 255), reason: 'hors sélection, inchangé');
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 3, 3, 3, r: 0, g: 0, b: 255); // dedans
+      c.terminer();
+      expect(c.couleurEn(3, 3), (r: 0, g: 0, b: 255), reason: 'dans la sélection, peint');
+      expect(c.couleurEn(6, 6), (r: 200, g: 30, b: 30), reason: '(6,6) hors sélection : rouge d\'origine');
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 8, 8, 1); // hors sélection
+      c.terminer();
+      expect(c.forces[8 * 12 + 8], forceAuto, reason: 'gomme ignorée hors sélection');
+    });
+
+    test('contourSelection : segments du bord de la sélection', () {
+      final c = docSel();
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5));
+      final seg = c.contourSelection();
+      expect(seg.length % 4, 0);
+      expect(seg.length ~/ 4, 16, reason: 'périmètre d\'un bloc 4×4 = 16 segments');
+      c.selectionRien();
+      expect(c.contourSelection(), isEmpty);
+    });
+
+    test('baguette lit le composite multi-couches', () {
+      final c = docSel();
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 4, 4, 1, r: 200, g: 30, b: 30); // même rouge sur le dessus
+      c.terminer();
+      expect(c.masqueBaguette(4, 4, tolerance: 10, contigu: false).where((v) => v == 1).length, 64,
+          reason: 'tout le carré rouge du composite');
+    });
+
+    test('annuler après une peinture sous sélection (la sélection survit)', () {
+      final c = docSel();
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5));
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 3, 3, 1, r: 0, g: 255, b: 0);
+      c.terminer();
+      expect(c.couleurEn(3, 3)!.g, 255);
+      c.annuler();
+      expect(c.couleurEn(3, 3), (r: 200, g: 30, b: 30));
+      expect(c.aSelection, isTrue, reason: 'la sélection n\'est pas dans le journal pixels');
+    });
+  });
+
+  group('aplatir et déplacer la sélection', () {
+    CalqueRetouche doc12() {
+      final im = img.Image(width: 12, height: 12, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      img.fillRect(im, x1: 2, y1: 2, x2: 9, y2: 9, color: img.ColorRgb8(200, 30, 30));
+      final brut = Uint8List(12 * 12 * 4)..setAll(0, im.getBytes(order: img.ChannelOrder.rgba));
+      return CalqueRetouche.depuis(OuvertureRetouche(12, 12, brut, Uint8List(144), Uint8List.fromList(brut)));
+    }
+
+    test('aplatir : une seule couche = composite + forces fusionnées, origine conservée', () {
+      final c = doc12();
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 0, g: 0, b: 255);
+      c.terminer();
+      c.activerCouche(0);
+      c.commencer();
+      c.tampon(ModeRetouche.proteger, 11, 11, 1);
+      c.terminer();
+      expect(c.nbCouches, 2);
+      c.aplatir();
+      expect(c.nbCouches, 1);
+      expect(c.actif, 0);
+      expect(c.pixels[0 * 4 + 2], 255, reason: 'pixel peint sur la couche du dessus, aplati');
+      expect(c.forces[11 * 12 + 11], forceProtege, reason: 'protection de la base fusionnée');
+      expect(c.pixelsComposite[(5 * 12 + 5) * 4], 200, reason: 'composite aplati = carré rouge');
+      // restaurer ramène l'image d'origine (origine de la couche de base)
+      c.commencer();
+      c.tampon(ModeRetouche.restaurer, 0, 0, 1);
+      c.terminer();
+      expect(c.pixels[0], 255, reason: 'origine conservée après aplatir');
+    });
+
+    test('aplatir ignore les couches masquées', () {
+      final c = doc12();
+      c.ajouterCouche();
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 0, 0, 1, r: 0, g: 0, b: 255);
+      c.terminer();
+      c.basculerVisibilite(1); // masquée
+      c.aplatir();
+      expect(c.pixels[0], 255, reason: 'couche masquée non aplatie : blanc d\'origine');
+    });
+
+    test('selectionBoite et extraireSelection', () {
+      final c = doc12();
+      expect(c.selectionBoite(), isNull);
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5));
+      final b = c.selectionBoite()!;
+      expect((b.x0, b.y0, b.w, b.h), (2, 2, 4, 4));
+      final t = c.extraireSelection()!;
+      expect((t.w, t.h), (4, 4));
+      expect(t.pixels[0], 200, reason: 'carré rouge extrait');
+      expect(t.pixels[3], 255);
+    });
+
+    test('deplacerSelectionContenu : source supprimée, destination protégée, annulable', () {
+      final c = doc12();
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5)); // 4×4 rouge
+      final t = c.extraireSelection()!;
+      c.deplacerSelectionContenu(t, 8, 0); // déplace de +3 en x
+      // source (2..5, 2..5) transparente + supprimée
+      expect(c.pixels[(2 * 12 + 2) * 4 + 3], 0, reason: 'source vidée');
+      expect(c.forces[2 * 12 + 2], forceSupprime);
+      // destination (5..8, 2..5) : rouge déplacé, protégé
+      expect(c.pixels[(2 * 12 + 10) * 4], 200, reason: 'destination = contenu déplacé');
+      expect(c.pixels[(2 * 12 + 10) * 4 + 3], 255);
+      expect(c.forces[2 * 12 + 10], forceProtege);
+      // composite reflète le déplacement
+      expect(c.pixelsComposite[(2 * 12 + 2) * 4 + 3], 0);
+      expect(c.pixelsComposite[(2 * 12 + 10) * 4], 200);
+      // une seule action annulable
+      expect(c.modifie, isTrue);
+      c.annuler();
+      expect(c.pixels[(2 * 12 + 2) * 4], 200, reason: 'annulation = contenu revenu');
+      expect(c.pixels[(2 * 12 + 2) * 4 + 3], 255);
+      expect(c.pixels[(2 * 12 + 10) * 4], 255, reason: 'destination restaur\u00e9e (blanc) \u00e0 l\'annulation');
+      expect(c.pixels[(2 * 12 + 10) * 4 + 3], 255);
+      expect(c.forces[2 * 12 + 2], forceAuto);
+    });
+
+    test('deplacerSelectionContenu rogne aux bords de l\'image', () {
+      final c = doc12();
+      c.appliquerSelection(c.masqueRectangle(2, 2, 5, 5));
+      final t = c.extraireSelection()!;
+      c.deplacerSelectionContenu(t, 8, 8); // dépasse à droite/bas
+      expect(c.pixels[(2 * 12 + 2) * 4 + 3], 0, reason: 'source vidée');
+      // destination rognée : seuls les pixels encore dans l'image sont écrits
+      expect(c.pixels[(10 * 12 + 10) * 4], 200, reason: '(10,10) = contenu d\u00e9plac\u00e9 \u00e9crit (blanc avant)');
+      expect(c.pixels[(11 * 12 + 11) * 4], 200, reason: '(11,11) aussi \u00e9crit');
+      expect(c.pixelsComposite.length, 12 * 12 * 4);
+    });
+
+    test('deplacerSelectionContenu sans sélection ne fait rien', () {
+      final c = doc12();
+      final avant = Uint8List.fromList(c.pixels);
+      c.deplacerSelectionContenu((pixels: Uint8List(4), x0: 0, y0: 0, w: 1, h: 1), 2, 2);
+      expect(c.pixels, avant);
+      expect(c.modifie, isFalse);
+    });
+  });
 }
+
+
