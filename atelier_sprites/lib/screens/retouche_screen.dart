@@ -16,9 +16,11 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/couleur.dart';
 import '../core/retouche.dart';
 import '../models.dart';
 import '../widgets/comparateur_detour.dart';
+import '../widgets/damier.dart';
 
 /// Résultat de l'éditeur : image retouchée (PNG) et carte des pixels forcés.
 class ResultatRetouche {
@@ -31,12 +33,34 @@ class ResultatRetouche {
   const ResultatRetouche(this.octets, this.forces, this.vide);
 }
 
-enum Outil { pinceau, gomme, proteger, restaurer, ligne, rectangle, ellipse, baguette, lasso, pipette, main }
+enum Outil { pinceau, gomme, degrade, remplissage, ligne, rectangle, ellipse, lasso, baguette, pipette, proteger, restaurer, main }
+
+/// Axes de symétrie du dessin (miroir façon multibrush de Krita), centrés sur l'image.
+enum Symetrie { aucune, horizontale, verticale, lesDeux }
+
+extension SymetrieX on Symetrie {
+  String get libelle => switch (this) {
+        Symetrie.aucune => 'Aucune',
+        Symetrie.horizontale => 'Miroir H',
+        Symetrie.verticale => 'Miroir V',
+        Symetrie.lesDeux => 'Miroir H+V',
+      };
+}
+
+/// Groupes affichés dans la toolbox verticale (séparés par un filet).
+const List<List<Outil>> groupesOutils = <List<Outil>>[
+  <Outil>[Outil.pinceau, Outil.gomme, Outil.degrade, Outil.remplissage],
+  <Outil>[Outil.ligne, Outil.rectangle, Outil.ellipse],
+  <Outil>[Outil.lasso, Outil.baguette],
+  <Outil>[Outil.pipette, Outil.proteger, Outil.restaurer, Outil.main],
+];
 
 extension OutilX on Outil {
   String get libelle => switch (this) {
         Outil.pinceau => 'Pinceau',
         Outil.gomme => 'Gomme',
+        Outil.degrade => 'Dégradé',
+        Outil.remplissage => 'Remplissage',
         Outil.proteger => 'Protéger',
         Outil.restaurer => 'Restaurer',
         Outil.ligne => 'Ligne',
@@ -51,6 +75,8 @@ extension OutilX on Outil {
   IconData get icone => switch (this) {
         Outil.pinceau => Icons.brush,
         Outil.gomme => Icons.auto_fix_normal,
+        Outil.degrade => Icons.gradient,
+        Outil.remplissage => Icons.format_color_fill,
         Outil.proteger => Icons.shield_outlined,
         Outil.restaurer => Icons.settings_backup_restore,
         Outil.ligne => Icons.horizontal_rule,
@@ -72,7 +98,9 @@ extension OutilX on Outil {
         Outil.ellipse => 'Glisse d\'un coin à l\'autre du cadre ; pleine ou contour.',
         Outil.baguette => 'Touche une couleur : applique l\'action à toute la zone de couleur proche.',
         Outil.lasso => 'Dessine le contour d\'une zone au doigt : l\'action s\'applique à son intérieur.',
-        Outil.pipette => 'Touche un pixel pour prendre sa couleur.',
+        Outil.degrade => 'Glisse du début à la fin : dégradé de la couleur principale vers la secondaire (bouton d\'échange). Transparente = fondu effaçant.',
+        Outil.remplissage => 'Touche une zone : la remplit de la couleur principale (tolérance réglable, zone contiguë).',
+        Outil.pipette => 'Touche un pixel pour prendre sa couleur (revient au pinceau).',
         Outil.main => 'Déplace la vue au doigt. Pince à deux doigts pour zoomer avec n\'importe quel outil.',
       };
 
@@ -124,6 +152,10 @@ class _EcranRetoucheState extends State<EcranRetouche> {
 
   Outil _outil = Outil.pinceau;
   int _taille = 8;
+  double _opacite = 1.0;
+  double _durete = 0.85;
+  bool _lissage = true;
+  Symetrie _symetrie = Symetrie.aucune;
   int _tolerance = 30;
   bool _contigu = true;
   bool _interieur = true;
@@ -133,6 +165,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   Offset? _formeA;
   Offset? _formeB;
   Color _couleur = const Color(0xFFFFFFFF);
+  Color _couleurSecondaire = const Color(0x00FFFFFF);
   final List<Color> _recentes = <Color>[];
 
   late FondControle _fond = widget.autonome ? FondControle.damier : FondControle.magenta;
@@ -164,7 +197,8 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   Offset _pinchFocalImage = Offset.zero;
   Offset? _depart;
   bool _aBouge = false;
-  Offset? _dernierImage;
+  Offset? _dernierTrace;
+  Offset? _lisse;
   Offset? _curseur;
   final List<Offset> _lasso = <Offset>[];
   bool _actionOuverte = false;
@@ -237,6 +271,17 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   }
 
   Offset _versImage(Offset p) => (p - _decalage) / _echelle;
+
+  /// Zoom d'un [facteur] autour du centre de la zone de dessin (boutons + / −).
+  void _zoom(double facteur) {
+    if (_zone.isEmpty) return;
+    final focal = _zone.center(Offset.zero);
+    final imageFocal = _versImage(focal);
+    setState(() {
+      _echelle = (_echelle * facteur).clamp(0.05, 60.0).toDouble();
+      _decalage = focal - imageFocal * _echelle;
+    });
+  }
 
   // --------------------------------------------------------------------------------------------
   // Gestes
@@ -333,6 +378,61 @@ class _EcranRetoucheState extends State<EcranRetouche> {
   int get _cg => _couleur.green;
   int get _cb => _couleur.blue;
 
+  bool get _estBrosse =>
+      _outil == Outil.pinceau || _outil == Outil.gomme || _outil == Outil.proteger || _outil == Outil.restaurer;
+  bool get _estForme =>
+      _outil == Outil.ligne || _outil == Outil.rectangle || _outil == Outil.ellipse || _outil == Outil.degrade;
+  bool get _aTaille => _estBrosse || _estForme;
+  bool get _peint => _outil == Outil.pinceau ||
+      _outil == Outil.degrade ||
+      _outil == Outil.remplissage ||
+      (_estForme && _outil != Outil.degrade && _actionForme == ModeRetouche.peindre) ||
+      ((_outil == Outil.baguette || _outil == Outil.lasso) && _actionZone == ModeRetouche.peindre);
+  bool get _aOpacite => _outil == Outil.pinceau ||
+      _outil == Outil.gomme ||
+      _outil == Outil.ligne ||
+      _outil == Outil.degrade ||
+      (_estForme && _actionForme == ModeRetouche.peindre);
+  bool get _aDurete => _estBrosse || _outil == Outil.ligne || _outil == Outil.degrade;
+
+  /// Points miroirs de [p] (coordonnées image) selon la symétrie choisie.
+  List<Offset> _pointsSymetrie(Offset p) {
+    final c = _c!;
+    final pts = <Offset>[p];
+    switch (_symetrie) {
+      case Symetrie.aucune:
+        break;
+      case Symetrie.horizontale:
+        pts.add(Offset(c.largeur - 1 - p.dx, p.dy));
+      case Symetrie.verticale:
+        pts.add(Offset(p.dx, c.hauteur - 1 - p.dy));
+      case Symetrie.lesDeux:
+        pts
+          ..add(Offset(c.largeur - 1 - p.dx, p.dy))
+          ..add(Offset(p.dx, c.hauteur - 1 - p.dy))
+          ..add(Offset(c.largeur - 1 - p.dx, c.hauteur - 1 - p.dy));
+    }
+    return pts;
+  }
+
+  void _tamponOutil(Offset pi) {
+    final c = _c!;
+    for (final q in _pointsSymetrie(pi)) {
+      c.tampon(_outil.mode!, q.dx.floor(), q.dy.floor(), _taille,
+          r: _cr, g: _cg, b: _cb, opacite: _opacite, durete: _durete);
+    }
+  }
+
+  void _traitOutil(Offset a, Offset b) {
+    final c = _c!;
+    final pa = _pointsSymetrie(a);
+    final pb = _pointsSymetrie(b);
+    for (var k = 0; k < pa.length; k++) {
+      c.trait(_outil.mode!, pa[k].dx.floor(), pa[k].dy.floor(), pb[k].dx.floor(), pb[k].dy.floor(), _taille,
+          r: _cr, g: _cg, b: _cb, opacite: _opacite, durete: _durete);
+    }
+  }
+
   void _debutOutil(Offset p) {
     final c = _c!;
     final pi = _versImage(p);
@@ -340,8 +440,9 @@ class _EcranRetoucheState extends State<EcranRetouche> {
       case Outil.pinceau || Outil.gomme || Outil.proteger || Outil.restaurer:
         c.commencer();
         _actionOuverte = true;
-        _dernierImage = pi;
-        c.tampon(_outil.mode!, pi.dx.floor(), pi.dy.floor(), _taille, r: _cr, g: _cg, b: _cb);
+        _lisse = pi;
+        _dernierTrace = pi;
+        _tamponOutil(pi);
         setState(() => _curseur = p);
         _rafraichir();
       case Outil.lasso:
@@ -349,35 +450,40 @@ class _EcranRetoucheState extends State<EcranRetouche> {
           ..clear()
           ..add(p);
         setState(() {});
-      case Outil.ligne || Outil.rectangle || Outil.ellipse:
+      case Outil.ligne || Outil.rectangle || Outil.ellipse || Outil.degrade:
         setState(() {
           _formeA = p;
           _formeB = p;
         });
-      case Outil.baguette || Outil.pipette || Outil.main:
+      case Outil.baguette || Outil.remplissage || Outil.pipette || Outil.main:
         break;
     }
   }
 
   void _moveOutil(Offset p) {
-    final c = _c!;
     final pi = _versImage(p);
     switch (_outil) {
       case Outil.pinceau || Outil.gomme || Outil.proteger || Outil.restaurer:
         if (!_actionOuverte) return;
-        final d = _dernierImage ?? pi;
-        c.trait(_outil.mode!, d.dx.floor(), d.dy.floor(), pi.dx.floor(), pi.dy.floor(), _taille,
-            r: _cr, g: _cg, b: _cb);
-        _dernierImage = pi;
+        Offset cible = pi;
+        if (_lissage && (_outil == Outil.pinceau || _outil == Outil.gomme)) {
+          // Stabilisateur : moyenne exponentielle du point brut, le trait dessiné
+          // rejoint le point lissé (façon stabilisateur de Krita).
+          _lisse = _lisse == null ? pi : _lisse! * 0.72 + pi * 0.28;
+          cible = _lisse!;
+        }
+        final d = _dernierTrace ?? cible;
+        _traitOutil(d, cible);
+        _dernierTrace = cible;
         setState(() => _curseur = p);
         _rafraichir();
       case Outil.lasso:
         if (_lasso.isEmpty || (p - _lasso.last).distance >= 3) {
           setState(() => _lasso.add(p));
         }
-      case Outil.ligne || Outil.rectangle || Outil.ellipse:
+      case Outil.ligne || Outil.rectangle || Outil.ellipse || Outil.degrade:
         if (_formeA != null) setState(() => _formeB = p);
-      case Outil.baguette || Outil.pipette || Outil.main:
+      case Outil.baguette || Outil.remplissage || Outil.pipette || Outil.main:
         break;
     }
   }
@@ -387,12 +493,25 @@ class _EcranRetoucheState extends State<EcranRetouche> {
     final pi = _versImage(p);
     switch (_outil) {
       case Outil.pinceau || Outil.gomme || Outil.proteger || Outil.restaurer:
+        if (_dernierTrace != null && (_outil == Outil.pinceau || _outil == Outil.gomme)) {
+          _traitOutil(_dernierTrace!, pi); // rejoindre le point réel en fin de geste
+        }
+        _lisse = null;
+        _dernierTrace = null;
         _terminerOutil(annule: false);
       case Outil.baguette:
         if (_aBouge) return;
         c.commencer();
         c.baguette(_actionZone, pi.dx.floor(), pi.dy.floor(),
             tolerance: _tolerance, contigu: _contigu, r: _cr, g: _cg, b: _cb);
+        c.terminer();
+        setState(() {});
+        _rafraichir();
+      case Outil.remplissage:
+        if (_aBouge) return;
+        c.commencer();
+        c.baguette(ModeRetouche.peindre, pi.dx.floor(), pi.dy.floor(),
+            tolerance: _tolerance, contigu: true, r: _cr, g: _cg, b: _cb);
         c.terminer();
         setState(() {});
         _rafraichir();
@@ -415,7 +534,7 @@ class _EcranRetoucheState extends State<EcranRetouche> {
           _rafraichir();
         }
         setState(() {});
-      case Outil.ligne || Outil.rectangle || Outil.ellipse:
+      case Outil.ligne || Outil.rectangle || Outil.ellipse || Outil.degrade:
         final a = _formeA;
         _formeA = null;
         _formeB = null;
@@ -427,11 +546,25 @@ class _EcranRetoucheState extends State<EcranRetouche> {
           final y1 = pi.dy.floor();
           c.commencer();
           if (_outil == Outil.ligne) {
-            c.trait(_actionForme, x0, y0, x1, y1, _taille, r: _cr, g: _cg, b: _cb);
+            c.trait(_actionForme, x0, y0, x1, y1, _taille,
+                r: _cr, g: _cg, b: _cb, opacite: _opacite, durete: _durete);
           } else if (_outil == Outil.rectangle) {
-            c.rectangle(_actionForme, x0, y0, x1, y1, epaisseur: _taille, rempli: _rempli, r: _cr, g: _cg, b: _cb);
+            c.rectangle(_actionForme, x0, y0, x1, y1,
+                epaisseur: _taille, rempli: _rempli, r: _cr, g: _cg, b: _cb, opacite: _opacite);
+          } else if (_outil == Outil.ellipse) {
+            c.ellipse(_actionForme, x0, y0, x1, y1,
+                epaisseur: _taille, rempli: _rempli, r: _cr, g: _cg, b: _cb, opacite: _opacite);
           } else {
-            c.ellipse(_actionForme, x0, y0, x1, y1, epaisseur: _taille, rempli: _rempli, r: _cr, g: _cg, b: _cb);
+            c.traitDegrade(x0, y0, x1, y1, _taille,
+                c0: (r: _cr, g: _cg, b: _cb, a: 255),
+                c1: (
+                  r: _couleurSecondaire.red,
+                  g: _couleurSecondaire.green,
+                  b: _couleurSecondaire.blue,
+                  a: _couleurSecondaire.alpha,
+                ),
+                opacite: _opacite,
+                durete: _durete);
           }
           c.terminer();
           _rafraichir();
@@ -783,58 +916,102 @@ class _EcranRetoucheState extends State<EcranRetouche> {
     }
   }
 
-  Future<void> _editerCouleur() async {
-    var r = _cr.toDouble();
-    var g = _cg.toDouble();
-    var b = _cb.toDouble();
+  /// Sélecteur de couleur façon Krita : aperçu sur damier, TSL (teinte, saturation,
+  /// luminosité), RVB et alpha. [secondaire] édite la couleur de fin du dégradé.
+  Future<void> _editerCouleur({bool secondaire = false}) async {
+    final init = secondaire ? _couleurSecondaire : _couleur;
+    var r = init.red.toDouble();
+    var g = init.green.toDouble();
+    var b = init.blue.toDouble();
+    var a = init.alpha.toDouble();
+    final t0 = rgbVersTsl(init.red, init.green, init.blue);
+    var h = t0.h;
+    var s = t0.s;
+    var l = t0.l;
     final choisie = await showDialog<Color>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text('Couleur'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Color.fromARGB(255, r.round(), g.round(), b.round()),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.black26),
-                ),
-              ),
-              for (final (nom, valeur, maj) in <(String, double, void Function(double))>[
-                ('Rouge', r, (v) => r = v),
-                ('Vert', g, (v) => g = v),
-                ('Bleu', b, (v) => b = v),
-              ])
-                Row(
+        builder: (ctx, setD) {
+          void depuisTsl(double nh, double ns, double nl) {
+            h = nh;
+            s = ns;
+            l = nl;
+            final c = tslVersRgb(h, s, l);
+            r = c.r.toDouble();
+            g = c.g.toDouble();
+            b = c.b.toDouble();
+          }
+
+          void depuisRgb() {
+            final t = rgbVersTsl(r.round(), g.round(), b.round());
+            h = t.h;
+            s = t.s;
+            l = t.l;
+          }
+
+          return AlertDialog(
+            title: Text(secondaire ? 'Couleur de fin du dégradé' : 'Couleur principale'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
                   children: [
-                    SizedBox(width: 48, child: Text(nom)),
-                    Expanded(
-                      child: Slider(
-                        value: valeur,
-                        min: 0,
-                        max: 255,
-                        divisions: 255,
-                        onChanged: (v) => setD(() => maj(v)),
+                    const SizedBox(height: 40, width: double.infinity, child: Damier(taille: 10)),
+                    Container(
+                      height: 40,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Color.fromARGB(a.round(), r.round(), g.round(), b.round()),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.black26),
                       ),
                     ),
                   ],
                 ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, Color.fromARGB(255, r.round(), g.round(), b.round())),
-              child: const Text('Choisir'),
+                const SizedBox(height: 8),
+                for (final (nom, valeur, min, max, div, maj) in <(String, double, double, double, int, void Function(double))>[
+                  ('Teinte', h, 0, 360, 72, (v) => depuisTsl(v, s, l)),
+                  ('Saturation', s * 100, 0, 100, 20, (v) => depuisTsl(h, v / 100, l)),
+                  ('Luminosité', l * 100, 0, 100, 20, (v) => depuisTsl(h, s, v / 100)),
+                  ('Rouge', r, 0, 255, 51, (v) { r = v; depuisRgb(); }),
+                  ('Vert', g, 0, 255, 51, (v) { g = v; depuisRgb(); }),
+                  ('Bleu', b, 0, 255, 51, (v) { b = v; depuisRgb(); }),
+                  ('Alpha', a, 0, 255, 51, (v) => a = v),
+                ])
+                  Row(
+                    children: [
+                      SizedBox(width: 72, child: Text(nom)),
+                      Expanded(
+                        child: Slider(
+                          value: valeur.clamp(min, max),
+                          min: min,
+                          max: max,
+                          divisions: div,
+                          label: valeur.toStringAsFixed(0),
+                          onChanged: (v) => setD(() => maj(v)),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
             ),
-          ],
-        ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, Color.fromARGB(a.round(), r.round(), g.round(), b.round())),
+                child: const Text('Choisir'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    if (choisie != null) _choisirCouleur(choisie);
+    if (choisie == null) return;
+    if (secondaire) {
+      setState(() => _couleurSecondaire = choisie);
+    } else {
+      _choisirCouleur(choisie);
+    }
   }
 
   // --------------------------------------------------------------------------------------------
@@ -883,7 +1060,14 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                 ? const Center(child: CircularProgressIndicator())
                 : Column(
                     children: [
-                      Expanded(child: _zoneDessin(c)),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            _toolbox(c),
+                            Expanded(child: _zoneDessin(c)),
+                          ],
+                        ),
+                      ),
                       _panneau(c),
                     ],
                   ),
@@ -932,7 +1116,9 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                       ModeRetouche.proteger => const Color(0xAA00C853),
                       ModeRetouche.restaurer => const Color(0xAA2979FF),
                     },
+                    formeCouleurSecondaire: _couleurSecondaire,
                     formeEpaisseur: _taille * _echelle,
+                    grille: _echelle >= 8,
                   ),
                 ),
               ),
@@ -945,7 +1131,20 @@ class _EcranRetoucheState extends State<EcranRetouche> {
               top: 8,
               child: Column(
                 children: [
-                  _boutonRond(Icons.zoom_out_map, 'Ajuster la vue', () => setState(_ajusterVue)),
+                  _boutonRond(Icons.zoom_out_map, 'Ajuster la vue (tout voir)', () => setState(_ajusterVue)),
+                  const SizedBox(height: 6),
+                  _boutonRond(Icons.zoom_in, 'Zoom avant', () => _zoom(1.25)),
+                  const SizedBox(height: 6),
+                  _boutonRond(Icons.zoom_out, 'Zoom arrière', () => _zoom(0.8)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('${(_echelle * 100).round()} %', style: Theme.of(context).textTheme.bodySmall),
+                  ),
                   const SizedBox(height: 6),
                   _boutonRond(
                     _controle ? Icons.visibility_off : Icons.visibility,
@@ -976,13 +1175,85 @@ class _EcranRetoucheState extends State<EcranRetouche> {
     );
   }
 
+  /// Toolbox verticale façon Krita : icônes groupées par famille, l'outil actif
+  /// est rempli ; l'infobulle donne le nom et l'aide de l'outil.
+  Widget _toolbox(CalqueRetouche c) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainer,
+      elevation: 4,
+      child: SafeArea(
+        right: false,
+        child: SizedBox(
+          width: 56,
+          child: ListView(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            children: [
+              for (var g = 0; g < groupesOutils.length; g++) ...[
+                if (g > 0) const Divider(height: 10, indent: 12, endIndent: 12),
+                for (final o in groupesOutils[g])
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+                    child: Tooltip(
+                      message: '${o.libelle} — ${o.aide}',
+                      waitDuration: const Duration(milliseconds: 400),
+                      child: Material(
+                        color: o == _outil ? theme.colorScheme.primary : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            if (o == _outil) return;
+                            _terminerOutil(annule: false);
+                            setState(() {
+                              _outil = o;
+                              c.teinterProteges = o == Outil.proteger;
+                            });
+                            _rafraichir();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Icon(
+                              o.icone,
+                              size: 22,
+                              color: o == _outil ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Ligne « nom + valeur + curseur » du panneau de réglages.
+  Widget _ligneReglage(
+    String nom,
+    String valeur,
+    double v,
+    double min,
+    double max,
+    int divisions,
+    ValueChanged<double> onChanged,
+  ) {
+    return Row(
+      children: [
+        SizedBox(width: 104, child: Text('$nom $valeur')),
+        Expanded(child: Slider(value: v, min: min, max: max, divisions: divisions, onChanged: onChanged)),
+      ],
+    );
+  }
+
   Widget _panneau(CalqueRetouche c) {
     final theme = Theme.of(context);
-    final forme = _outil == Outil.ligne || _outil == Outil.rectangle || _outil == Outil.ellipse;
-    final peint = _outil == Outil.pinceau ||
-        (forme && _actionForme == ModeRetouche.peindre) ||
-        (_actionZone == ModeRetouche.peindre && (_outil == Outil.baguette || _outil == Outil.lasso));
-    final tailleOutil = _outil.mode != null || forme;
+    final forme = _estForme && _outil != Outil.degrade;
+    final peint = _peint;
+    final tailleOutil = _aTaille;
     return Material(
       color: theme.colorScheme.surfaceContainer,
       elevation: 4,
@@ -1002,49 +1273,39 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                 const SizedBox(height: 6),
                 _puces(),
               ] else ...[
-                SizedBox(
-                  height: 44,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      for (final o in Outil.values)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: ChoiceChip(
-                            avatar: Icon(o.icone, size: 18),
-                            label: Text(o.libelle),
-                            selected: o == _outil,
-                            onSelected: (_) {
-                              _terminerOutil(annule: false);
-                              setState(() {
-                                _outil = o;
-                                c.teinterProteges = o == Outil.proteger;
-                              });
-                              _rafraichir();
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+                Text(_outil.libelle, style: theme.textTheme.titleSmall),
                 Text(_outil.aide, style: theme.textTheme.bodySmall),
                 if (tailleOutil)
-                  Row(
+                  _ligneReglage('Taille', '$_taille px', _taille.toDouble(), 1, 80, 79,
+                      (v) => setState(() => _taille = v.round())),
+                if (_aOpacite)
+                  _ligneReglage('Opacité', '${(_opacite * 100).round()} %', _opacite, 0.05, 1, 19,
+                      (v) => setState(() => _opacite = v)),
+                if (_aDurete)
+                  _ligneReglage('Dureté', '${(_durete * 100).round()} %', _durete, 0, 1, 20,
+                      (v) => setState(() => _durete = v)),
+                if (_estBrosse)
+                  Wrap(
+                    spacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      SizedBox(width: 72, child: Text('Taille $_taille')),
-                      Expanded(
-                        child: Slider(
-                          value: _taille.toDouble(),
-                          min: 1,
-                          max: 80,
-                          divisions: 79,
-                          label: '$_taille px',
-                          onChanged: (v) => setState(() => _taille = v.round()),
+                      if (_outil == Outil.pinceau || _outil == Outil.gomme)
+                        FilterChip(
+                          label: const Text('Lissage'),
+                          selected: _lissage,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (v) => setState(() => _lissage = v),
                         ),
-                      ),
+                      for (final s in Symetrie.values)
+                        ChoiceChip(
+                          label: Text(s.libelle),
+                          selected: _symetrie == s,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) => setState(() => _symetrie = s),
+                        ),
                     ],
                   ),
-                if (_outil == Outil.baguette)
+                if (_outil == Outil.baguette || _outil == Outil.remplissage)
                   Row(
                     children: [
                       SizedBox(width: 72, child: Text('Tolér. $_tolerance')),
@@ -1058,11 +1319,12 @@ class _EcranRetoucheState extends State<EcranRetouche> {
                           onChanged: (v) => setState(() => _tolerance = v.round()),
                         ),
                       ),
-                      FilterChip(
-                        label: const Text('Contigu'),
-                        selected: _contigu,
-                        onSelected: (v) => setState(() => _contigu = v),
-                      ),
+                      if (_outil == Outil.baguette)
+                        FilterChip(
+                          label: const Text('Contigu'),
+                          selected: _contigu,
+                          onSelected: (v) => setState(() => _contigu = v),
+                        ),
                     ],
                   ),
                 if (forme)
@@ -1150,43 +1412,72 @@ class _EcranRetoucheState extends State<EcranRetouche> {
     );
   }
 
+  /// Pastille de couleur (posée sur un damier si elle est semi-transparente).
+  Widget _pastille(Color col, {required bool active, required VoidCallback onTap}) {
+    final disque = Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: col,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: active ? Theme.of(context).colorScheme.primary : Colors.black26,
+          width: active ? 3 : 1,
+        ),
+      ),
+    );
+    return GestureDetector(
+      onTap: onTap,
+      child: col.alpha < 255
+          ? Stack(
+              alignment: Alignment.center,
+              children: [const SizedBox(width: 32, height: 32, child: Damier(taille: 8)), disque],
+            )
+          : disque,
+    );
+  }
+
   Widget _paletteCouleurs() {
-    const base = <Color>[
-      Color(0xFFFFFFFF),
-      Color(0xFF000000),
-      Color(0xFF9E9E9E),
-      Color(0xFFD32F2F),
-      Color(0xFFF57C00),
-      Color(0xFFFBC02D),
-      Color(0xFF388E3C),
-      Color(0xFF1976D2),
-      Color(0xFF7B1FA2),
-      Color(0xFF795548),
+    final couleurs = <Color>[
+      ..._recentes,
+      for (final b in paletteBase) if (!_recentes.contains(Color(b))) Color(b),
     ];
-    final couleurs = <Color>[..._recentes, for (final b in base) if (!_recentes.contains(b)) b];
     return SizedBox(
       height: 44,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          for (final col in couleurs)
-            GestureDetector(
-              onTap: () => _choisirCouleur(col),
-              child: Container(
-                width: 32,
-                height: 32,
-                margin: const EdgeInsets.only(right: 6, top: 6, bottom: 6),
-                decoration: BoxDecoration(
-                  color: col,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: col == _couleur ? Theme.of(context).colorScheme.primary : Colors.black26,
-                    width: col == _couleur ? 3 : 1,
-                  ),
-                ),
-              ),
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: _pastille(_couleur, active: true, onTap: () => _editerCouleur(secondaire: false)),
+          ),
+          if (_outil == Outil.degrade) ...[
+            IconButton(
+              tooltip: 'Échanger les deux couleurs',
+              iconSize: 20,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.swap_horiz),
+              onPressed: () => setState(() {
+                final t = _couleur;
+                _couleur = _couleurSecondaire;
+                _couleurSecondaire = t;
+              }),
             ),
-          IconButton(tooltip: 'Autre couleur', icon: const Icon(Icons.palette_outlined), onPressed: _editerCouleur),
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: _pastille(_couleurSecondaire, active: false, onTap: () => _editerCouleur(secondaire: true)),
+            ),
+          ],
+          for (final col in couleurs)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: _pastille(col, active: col == _couleur, onTap: () => _choisirCouleur(col)),
+            ),
+          IconButton(
+            tooltip: 'Sélecteur de couleur (TSL + RVB + alpha)',
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: () => _editerCouleur(secondaire: false),
+          ),
         ],
       ),
     );
@@ -1209,7 +1500,9 @@ class _PeintreRetouche extends CustomPainter {
   final Offset? formeB;
   final bool formeRempli;
   final Color formeCouleur;
+  final Color formeCouleurSecondaire;
   final double formeEpaisseur;
+  final bool grille;
 
   _PeintreRetouche({
     required this.image,
@@ -1227,7 +1520,9 @@ class _PeintreRetouche extends CustomPainter {
     required this.formeB,
     required this.formeRempli,
     required this.formeCouleur,
+    required this.formeCouleurSecondaire,
     required this.formeEpaisseur,
+    required this.grille,
   });
 
   @override
@@ -1278,6 +1573,30 @@ class _PeintreRetouche extends CustomPainter {
         ..color = const Color(0xFF888888),
     );
 
+    // Grille des pixels quand le zoom est fort (pixel art).
+    if (grille && !visible.isEmpty) {
+      final pFonce = Paint()
+        ..color = const Color(0x2E000000)
+        ..strokeWidth = 1;
+      final pClair = Paint()
+        ..color = const Color(0x2EFFFFFF)
+        ..strokeWidth = 1;
+      final i0 = math.max(0, ((visible.left - dst.left) / echelle).floor());
+      final i1 = math.min(largeur, ((visible.right - dst.left) / echelle).ceil());
+      final j0 = math.max(0, ((visible.top - dst.top) / echelle).floor());
+      final j1 = math.min(hauteur, ((visible.bottom - dst.top) / echelle).ceil());
+      for (var i = i0; i <= i1; i++) {
+        final x = dst.left + i * echelle;
+        canvas.drawLine(Offset(x, visible.top), Offset(x, visible.bottom), pFonce);
+        canvas.drawLine(Offset(x, visible.top), Offset(x, visible.bottom), pClair);
+      }
+      for (var j = j0; j <= j1; j++) {
+        final y = dst.top + j * echelle;
+        canvas.drawLine(Offset(visible.left, y), Offset(visible.right, y), pFonce);
+        canvas.drawLine(Offset(visible.left, y), Offset(visible.right, y), pClair);
+      }
+    }
+
     if (lasso.length >= 2) {
       final chemin = Path()..moveTo(lasso.first.dx, lasso.first.dy);
       for (final p in lasso.skip(1)) {
@@ -1318,7 +1637,18 @@ class _PeintreRetouche extends CustomPainter {
       final plein = Paint()..color = formeCouleur;
       final cadre = Rect.fromPoints(fa, fb);
       final creux = cadre.width > ep && cadre.height > ep;
-      if (formeOutil == Outil.ligne) {
+      if (formeOutil == Outil.degrade) {
+        // Aperçu du dégradé : trait en dégradé linéaire entre les deux couleurs.
+        canvas.drawLine(
+          fa,
+          fb,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = ep
+            ..strokeCap = StrokeCap.round
+            ..shader = ui.Gradient.linear(fa, fb, [formeCouleur, formeCouleurSecondaire]),
+        );
+      } else if (formeOutil == Outil.ligne) {
         canvas.drawLine(fa, fb, trait);
       } else if (formeOutil == Outil.rectangle) {
         canvas.drawRect(formeRempli || !creux ? cadre : cadre.deflate(ep / 2), formeRempli || !creux ? plein : trait);
@@ -1326,13 +1656,15 @@ class _PeintreRetouche extends CustomPainter {
         canvas.drawOval(formeRempli || !creux ? cadre : cadre.deflate(ep / 2), formeRempli || !creux ? plein : trait);
       }
       // Contour fin pour repérer le cadre quelle que soit la couleur.
-      canvas.drawRect(
-        cadre,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = const Color(0x99FFFFFF),
-      );
+      if (formeOutil != Outil.degrade) {
+        canvas.drawRect(
+          cadre,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1
+            ..color = const Color(0x99FFFFFF),
+        );
+      }
     }
 
     final cur = curseur;

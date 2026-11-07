@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:atelier_sprites/core/animations.dart';
+import 'package:atelier_sprites/core/couleur.dart';
 import 'package:atelier_sprites/core/decoupe.dart';
 import 'package:atelier_sprites/core/detourage.dart';
 import 'package:atelier_sprites/core/doublons.dart';
@@ -852,6 +853,150 @@ void main() {
       final sortie = img.decodePng(r.vignettes['0']!)!;
       expect(sortie.getPixel(7, 7).a.toInt(), 0);
       expect(sortie.getPixel(3, 3).a.toInt(), 255);
+    });
+  });
+
+  group('pinceau avancé : opacité, dureté, dégradé, TSL', () {
+    CalqueRetouche calqueVide(int w, int h) {
+      final brut = Uint8List(w * h * 4);
+      return CalqueRetouche.depuis(OuvertureRetouche(w, h, brut, Uint8List(w * h), Uint8List.fromList(brut)));
+    }
+
+    CalqueRetouche calqueBlanc(int w, int h) {
+      final im = img.Image(width: w, height: h, numChannels: 4);
+      img.fill(im, color: img.ColorRgb8(255, 255, 255));
+      final brut = Uint8List(w * h * 4)..setAll(0, im.getBytes(order: img.ChannelOrder.rgba));
+      return CalqueRetouche.depuis(OuvertureRetouche(w, h, brut, Uint8List(w * h), Uint8List.fromList(brut)));
+    }
+
+    test('poidsBrosse : bord net à dureté 1, fondu doux à 0', () {
+      expect(poidsBrosse(0, 1), 1);
+      expect(poidsBrosse(0.999, 1), 1);
+      expect(poidsBrosse(1, 1), 0);
+      expect(poidsBrosse(1.2, 0), 0);
+      expect(poidsBrosse(0.5, 0), closeTo(0.5, 0.01)); // smoothstep(0.5) = 0.5
+      expect(poidsBrosse(0.5, 0.8), 1, reason: 'dans la zone dure');
+      expect(poidsBrosse(0.9, 0), lessThan(0.2), reason: 'presque au bord, fondu faible');
+    });
+
+    test('tampon doux : plein au centre, fondu au bord', () {
+      final c = calqueVide(9, 9);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 4, 4, 9, r: 200, g: 0, b: 0, durete: 0);
+      c.terminer();
+      const centre = (4 * 9 + 4) * 4;
+      expect(c.pixels[centre + 3], 255, reason: 'centre opaque');
+      expect(c.pixels[centre], 200);
+      const bord = (4 * 9 + 8) * 4; // q = 4/4.5 ≈ 0.89
+      expect(c.pixels[bord + 3], inInclusiveRange(1, 120), reason: 'bord en fondu');
+      expect(c.forces[4 * 9 + 4], forceProtege);
+    });
+
+    test('opacité : deux passages à 50 % ne rendent pas opaque', () {
+      final c = calqueVide(4, 4);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 10, g: 20, b: 30, opacite: 0.5);
+      c.terminer();
+      const o = (1 * 4 + 1) * 4;
+      final a1 = c.pixels[o + 3];
+      expect(a1, inInclusiveRange(120, 135));
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 10, g: 20, b: 30, opacite: 0.5);
+      c.terminer();
+      final a2 = c.pixels[o + 3];
+      expect(a2, greaterThan(a1));
+      expect(a2, lessThan(255));
+    });
+
+    test('peindre à 50 % sur blanc opaque : mélange de couleur, alpha à 255', () {
+      final c = calqueBlanc(4, 4);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 1, 1, 1, r: 200, g: 0, b: 0, opacite: 0.5);
+      c.terminer();
+      const o = (1 * 4 + 1) * 4;
+      expect(c.pixels[o + 3], 255, reason: 'sur opaque, l\'alpha reste à 255');
+      expect(c.pixels[o], inInclusiveRange(224, 232), reason: 'mélange 50 % : (255+200)/2 ≈ 227');
+      expect(c.pixels[o + 1], inInclusiveRange(120, 135));
+    });
+
+    test('gomme douce : alpha réduit et pixel protégé ; à fond, supprimé', () {
+      final c = calqueBlanc(4, 4);
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 1, 1, 1, opacite: 0.5);
+      c.terminer();
+      const o = (1 * 4 + 1) * 4;
+      expect(c.pixels[o + 3], inInclusiveRange(120, 135));
+      expect(c.forces[1 * 4 + 1], forceProtege, reason: 'effacement partiel = protégé du détourage');
+      c.commencer();
+      c.tampon(ModeRetouche.effacer, 1, 1, 1);
+      c.terminer();
+      expect(c.pixels[o + 3], 0);
+      expect(c.forces[1 * 4 + 1], forceSupprime);
+    });
+
+    test('dégradé : couleur interpolée du début à la fin', () {
+      final c = calqueVide(10, 1);
+      c.commencer();
+      c.traitDegrade(0, 0, 9, 0, 1, c0: (r: 255, g: 0, b: 0, a: 255), c1: (r: 0, g: 0, b: 255, a: 255));
+      c.terminer();
+      expect(c.couleurEn(0, 0)!.r, greaterThan(240));
+      expect(c.couleurEn(0, 0)!.b, lessThan(20));
+      expect(c.couleurEn(9, 0)!.b, greaterThan(240));
+      expect(c.couleurEn(9, 0)!.r, lessThan(20));
+      final milieu = c.couleurEn(4, 0)!; // t = 4/9
+      expect(milieu.r, inInclusiveRange(120, 160));
+      expect(milieu.b, inInclusiveRange(90, 140));
+      expect(c.couleurEn(0, 0)!.r, isNot(c.couleurEn(9, 0)!.r));
+    });
+
+    test('dégradé vers transparent : fondu effaçant (alpha décroissant)', () {
+      final c = calqueBlanc(10, 1);
+      c.commencer();
+      c.traitDegrade(0, 0, 9, 0, 1, c0: (r: 255, g: 0, b: 0, a: 255), c1: (r: 0, g: 0, b: 0, a: 0));
+      c.terminer();
+      expect(c.pixels[0 * 4 + 3], 255, reason: 'début opaque');
+      expect(c.pixels[9 * 4 + 3], 0, reason: 'fin transparente');
+      expect(c.pixels[4 * 4 + 3], inInclusiveRange(80, 170), reason: 'milieu à moitié fondu');
+    });
+
+    test('annuler / rétablir avec une brosse douce et semi-transparente', () {
+      final c = calqueBlanc(6, 6);
+      c.commencer();
+      c.tampon(ModeRetouche.peindre, 3, 3, 5, r: 0, g: 0, b: 255, durete: 0, opacite: 0.7);
+      c.terminer();
+      expect(c.modifie, isTrue);
+      expect(c.couleurEn(3, 3)!.b, 255);
+      expect(c.couleurEn(3, 3)!.r, lessThan(100), reason: 'mélangé à 70 % avec le blanc');
+      c.annuler();
+      expect(c.couleurEn(3, 3), (r: 255, g: 255, b: 255));
+      expect(c.forces.every((f) => f == forceAuto), isTrue);
+      c.retablir();
+      expect(c.couleurEn(3, 3)!.b, 255);
+      expect(c.couleurEn(3, 3)!.r, lessThan(100));
+    });
+
+    test('TSL : couleurs primaires et aller-retour RVB -> TSL -> RVB', () {
+      expect(tslVersRgb(0, 1, 0.5), (r: 255, g: 0, b: 0));
+      expect(tslVersRgb(120, 1, 0.5), (r: 0, g: 255, b: 0));
+      expect(tslVersRgb(240, 1, 0.5), (r: 0, g: 0, b: 255));
+      final t = rgbVersTsl(255, 0, 0);
+      expect(t.h, 0);
+      expect(t.s, 1);
+      expect(t.l, 0.5);
+      for (final (r, g, b) in <(int, int, int)>[(200, 30, 30), (10, 20, 30), (255, 255, 255), (0, 0, 0), (1, 128, 250)]) {
+        final t2 = rgbVersTsl(r, g, b);
+        final c = tslVersRgb(t2.h, t2.s, t2.l);
+        expect((c.r - r).abs(), lessThanOrEqualTo(2), reason: 'r de ($r, $g, $b)');
+        expect((c.g - g).abs(), lessThanOrEqualTo(2), reason: 'g de ($r, $g, $b)');
+        expect((c.b - b).abs(), lessThanOrEqualTo(2), reason: 'b de ($r, $g, $b)');
+      }
+    });
+
+    test('palette de base : ARGB valides', () {
+      expect(paletteBase.length, greaterThanOrEqualTo(10));
+      for (final c in paletteBase) {
+        expect((c >> 24) & 0xFF, 255, reason: 'opaque');
+      }
     });
   });
 }

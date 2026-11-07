@@ -58,12 +58,17 @@ flutter run
      zoomée : *Résultat* sur fond noir / magenta / blanc / herbe / damier (un liseré saute aux
      yeux), *Avant/après* avec curseur de séparation, *Retiré* (zones supprimées en rouge sur
      l'original) ; zoom au doigt avec pixels nets ;
-   - **retouche à la main** (bouton sous l'aperçu), façon logiciel de dessin, sur la planche
-     entière : *pinceau* (peint et protège), *gomme* (supprime), *protéger* (le détourage ne
+   - **retouche à la main** (bouton sous l'aperçu), façon logiciel de dessin (outils inspirés
+     de Krita : toolbox verticale, panneau de réglages contextuel), sur la planche entière :
+     *pinceau* (taille, **opacité**, **dureté du bord**, **lissage du trait** façon stabilisateur,
+     **symétrie miroir** H/V ; peint et protège), *gomme* (supprime ; opacité < 100 % = gomme
+     douce), *dégradé* (de la couleur principale vers la secondaire, transparente = fondu
+     effaçant), *remplissage* (pot de peinture, tolérance réglable), *protéger* (le détourage ne
      retire jamais ces pixels : cheveux blancs, reflets), *restaurer*, *baguette magique*
      (tolérance, contigu ou non), *lasso* (intérieur ou extérieur), *ligne*, *rectangle* et *ellipse* (pleins ou contours, avec aperçu
-     pendant le glissement), *pipette*, zoom à deux doigts,
-     annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
+     pendant le glissement), *pipette*, sélecteur de couleur **TSL + RVB + alpha** avec couleurs
+     récentes, zoom à deux doigts, molette ou boutons +/− (grille de pixels affichée en zoom
+     fort), annuler / rétablir, et *contrôle* du détourage automatique avec tes retouches ;
    - **export PNG ou JPG** de l'image de travail (bouton partage de l'éditeur) : PNG transparent,
      ou JPG (qualité réglable, fond au choix), avec ou sans détourage automatique ; enregistrer
      dans un dossier ou partager. L'éditeur s'ouvre aussi **sans planche de sprites** depuis

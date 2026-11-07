@@ -1,11 +1,13 @@
-/// Retouche à la main d'une planche : pinceau, gomme, protection, restauration,
+/// Retouche à la main d'une planche, façon logiciel de dessin : pinceau (taille,
+/// opacité, dureté du bord), gomme, protection, restauration, dégradé, formes,
 /// baguette magique et lasso, avec annuler/rétablir.
 ///
 /// Le calque travaille sur les pixels bruts (RGBA) de la planche entière et sur
 /// une carte de « forces » (un octet par pixel) que le détourage automatique
 /// respecte : 0 = automatique, 1 = supprimé à la main, 2 = protégé (jamais retiré).
-/// Peindre colore le pixel **et** le protège ; effacer le supprime ; restaurer
-/// rend la couleur d'origine et repasse en automatique.
+/// Peindre colore le pixel **et** le protège ; effacer le supprime (ou réduit son
+/// alpha si le poids est partiel) ; restaurer rend la couleur d'origine et repasse
+/// en automatique.
 library;
 
 import 'dart:math' as math;
@@ -21,6 +23,18 @@ const int forceProtege = 2;
 
 /// Ce que fait un outil sur les pixels qu'il touche.
 enum ModeRetouche { peindre, effacer, proteger, restaurer }
+
+/// Poids de la brosse à la distance relative [q] du centre du tampon (0 = centre,
+/// 1 = bord) pour une dureté [durete] : 1 = bord net (poids 1 partout dans le
+/// disque), 0 = fondu le plus doux (décroissance lissée vers le bord).
+double poidsBrosse(double q, double durete) {
+  if (q <= 0) return 1;
+  if (q >= 1) return 0;
+  final h = durete.clamp(0.0, 1.0);
+  if (q <= h) return 1;
+  final w = 1 - (q - h) / (1 - h);
+  return w * w * (3 - 2 * w); // lissage smoothstep
+}
 
 /// Pixels bruts RGBA d'une planche, avec la carte de forces.
 class OuvertureRetouche {
@@ -414,29 +428,48 @@ class CalqueRetouche {
   // Pixels
   // ------------------------------------------------------------------------------------------
 
-  /// Applique [mode] au pixel [i] ; [r], [g], [b] : couleur pour [ModeRetouche.peindre].
-  void _appliquer(ModeRetouche mode, int i, int r, int g, int b) {
+  /// Applique [mode] au pixel [i] avec le poids [poids] (0..1 = opacité × fondu du
+  /// bord de la brosse) ; [r], [g], [b], [a] : couleur pour [ModeRetouche.peindre]
+  /// (un alpha [a] < 255 peint en semi-transparent, 0 = fondu vers la transparence).
+  void _appliquer(ModeRetouche mode, int i, int r, int g, int b, {int a = 255, double poids = 1.0}) {
     final o = i * 4;
+    final k = poids.clamp(0.0, 1.0);
     switch (mode) {
       case ModeRetouche.peindre:
-        if (forces[i] == forceProtege && pixels[o] == r && pixels[o + 1] == g && pixels[o + 2] == b && pixels[o + 3] == 255) {
+        if (k <= 0) return;
+        // Mélange en « premultiplied lerp » : couleur et alpha fondent ensemble,
+        // ce qui permet aussi de peindre vers la transparence (a = 0).
+        final sa = (a.clamp(0, 255) / 255) * k;
+        final da = pixels[o + 3] / 255;
+        final fa = da * (1 - k) + sa;
+        final nr = fa > 0 ? ((pixels[o] * da * (1 - k) + r * sa) / fa).round() : 0;
+        final ng = fa > 0 ? ((pixels[o + 1] * da * (1 - k) + g * sa) / fa).round() : 0;
+        final nb = fa > 0 ? ((pixels[o + 2] * da * (1 - k) + b * sa) / fa).round() : 0;
+        final na = (fa * 255).round().clamp(0, 255);
+        if (forces[i] == forceProtege && pixels[o] == nr && pixels[o + 1] == ng && pixels[o + 2] == nb && pixels[o + 3] == na) {
           return;
         }
         _noter(i);
-        pixels[o] = r;
-        pixels[o + 1] = g;
-        pixels[o + 2] = b;
-        pixels[o + 3] = 255;
+        pixels[o] = nr;
+        pixels[o + 1] = ng;
+        pixels[o + 2] = nb;
+        pixels[o + 3] = na;
         forces[i] = forceProtege;
       case ModeRetouche.effacer:
-        if (forces[i] == forceSupprime) return;
+        if (k <= 0 || forces[i] == forceSupprime) return;
+        final na = (pixels[o + 3] * (1 - k)).round();
+        if (na == pixels[o + 3]) return;
         _noter(i);
-        forces[i] = forceSupprime;
+        pixels[o + 3] = na;
+        // Effacement partiel : alpha réduit mais pixel gardé (protégé du détourage) ;
+        // à fond, le pixel est supprimé.
+        forces[i] = na == 0 ? forceSupprime : forceProtege;
       case ModeRetouche.proteger:
-        if (forces[i] == forceProtege) return;
+        if (k < 0.5 || forces[i] == forceProtege) return;
         _noter(i);
         forces[i] = forceProtege;
       case ModeRetouche.restaurer:
+        if (k < 0.5) return;
         final dejaOrigine = forces[i] == forceAuto &&
             pixels[o] == origine[o] &&
             pixels[o + 1] == origine[o + 1] &&
@@ -464,8 +497,25 @@ class CalqueRetouche {
   // Outils
   // ------------------------------------------------------------------------------------------
 
-  /// Tampon rond de [diametre] px centré en ([cx], [cy]).
-  void tampon(ModeRetouche mode, int cx, int cy, int diametre, {int r = 0, int g = 0, int b = 0}) {
+  /// Tampon rond de [diametre] px centré en ([cx], [cy]) : [opacite] 0..1 et
+  /// [durete] 0..1 (1 = bord net) donnent un pinceau doux ; [a] est l'alpha de la
+  /// couleur peinte (255 par défaut, 0 = transparent).
+  void tampon(
+    ModeRetouche mode,
+    int cx,
+    int cy,
+    int diametre, {
+    int r = 0,
+    int g = 0,
+    int b = 0,
+    int a = 255,
+    double opacite = 1.0,
+    double durete = 1.0,
+  }) {
+    _tampon(mode, cx, cy, diametre, r, g, b, a, opacite, durete);
+  }
+
+  void _tampon(ModeRetouche mode, int cx, int cy, int diametre, int r, int g, int b, int a, double opacite, double durete) {
     final rayon = math.max(0.5, diametre / 2);
     final lim = rayon.ceil();
     final r2 = rayon * rayon;
@@ -475,25 +525,80 @@ class CalqueRetouche {
       for (var dx = -lim; dx <= lim; dx++) {
         final x = cx + dx;
         if (x < 0 || x >= largeur) continue;
-        if (dx * dx + dy * dy <= r2) _appliquer(mode, y * largeur + x, r, g, b);
+        final d2 = dx * dx + dy * dy;
+        if (d2 > r2) continue;
+        final poids = poidsBrosse(math.sqrt(d2) / rayon, durete) * opacite;
+        _appliquer(mode, y * largeur + x, r, g, b, a: a, poids: poids);
       }
     }
   }
 
   /// Trait continu du point (x0, y0) au point (x1, y1), au pas d'un pixel.
-  void trait(ModeRetouche mode, int x0, int y0, int x1, int y1, int diametre, {int r = 0, int g = 0, int b = 0}) {
+  void trait(
+    ModeRetouche mode,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    int diametre, {
+    int r = 0,
+    int g = 0,
+    int b = 0,
+    int a = 255,
+    double opacite = 1.0,
+    double durete = 1.0,
+  }) {
     final pas = math.max((x1 - x0).abs(), (y1 - y0).abs());
     if (pas == 0) {
-      tampon(mode, x0, y0, diametre, r: r, g: g, b: b);
+      _tampon(mode, x0, y0, diametre, r, g, b, a, opacite, durete);
       return;
     }
     // Pour un gros pinceau, un tampon tous les quarts de diamètre suffit.
     final saut = math.max(1, diametre ~/ 4);
     for (var s = 0; s <= pas; s += saut) {
       final t = s / pas;
-      tampon(mode, (x0 + (x1 - x0) * t).round(), (y0 + (y1 - y0) * t).round(), diametre, r: r, g: g, b: b);
+      _tampon(mode, (x0 + (x1 - x0) * t).round(), (y0 + (y1 - y0) * t).round(), diametre, r, g, b, a, opacite, durete);
     }
-    tampon(mode, x1, y1, diametre, r: r, g: g, b: b);
+    _tampon(mode, x1, y1, diametre, r, g, b, a, opacite, durete);
+  }
+
+  /// Dégradé du point (x0, y0) au point (x1, y1) au tampon de [diametre] px : la
+  /// couleur **et** l'alpha passent linéairement de [c0] à [c1] le long du trait
+  /// (c1 transparent = fondu vers la transparence, façon outil dégradé de Krita).
+  void traitDegrade(
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    int diametre, {
+    required ({int r, int g, int b, int a}) c0,
+    required ({int r, int g, int b, int a}) c1,
+    double opacite = 1.0,
+    double durete = 1.0,
+  }) {
+    int lerp(int v0, int v1, double t) => (v0 + (v1 - v0) * t).round();
+    final pas = math.max((x1 - x0).abs(), (y1 - y0).abs());
+    if (pas == 0) {
+      _tampon(ModeRetouche.peindre, x0, y0, diametre, c0.r, c0.g, c0.b, c0.a, opacite, durete);
+      return;
+    }
+    final saut = math.max(1, diametre ~/ 4);
+    for (var s = 0; s <= pas; s += saut) {
+      final t = s / pas;
+      _tampon(
+        ModeRetouche.peindre,
+        (x0 + (x1 - x0) * t).round(),
+        (y0 + (y1 - y0) * t).round(),
+        diametre,
+        lerp(c0.r, c1.r, t),
+        lerp(c0.g, c1.g, t),
+        lerp(c0.b, c1.b, t),
+        lerp(c0.a, c1.a, t),
+        opacite,
+        durete,
+      );
+    }
+    _tampon(ModeRetouche.peindre, x1, y1, diametre, c1.r, c1.g, c1.b, c1.a, opacite, durete);
   }
 
   /// Rectangle de coins opposés (x0, y0) et (x1, y1), inclus : plein, ou contour de
@@ -509,6 +614,7 @@ class CalqueRetouche {
     int r = 0,
     int g = 0,
     int b = 0,
+    double opacite = 1.0,
   }) {
     final ax = math.min(x0, x1);
     final bx = math.max(x0, x1);
@@ -520,7 +626,7 @@ class CalqueRetouche {
         if (!rempli && x - ax >= epaisseur && bx - x >= epaisseur && y - ay >= epaisseur && by - y >= epaisseur) {
           continue;
         }
-        _appliquer(mode, y * largeur + x, r, g, b);
+        _appliquer(mode, y * largeur + x, r, g, b, poids: opacite);
         n++;
       }
     }
@@ -540,6 +646,7 @@ class CalqueRetouche {
     int r = 0,
     int g = 0,
     int b = 0,
+    double opacite = 1.0,
   }) {
     final ax = math.min(x0, x1);
     final bx = math.max(x0, x1);
@@ -559,7 +666,7 @@ class CalqueRetouche {
         final dx = x + 0.5 - cx;
         if (dx * dx / (rx * rx) + dy * dy / (ry * ry) > 1) continue;
         if (creuse && dx * dx / (irx * irx) + dy * dy / (iry * iry) < 1) continue;
-        _appliquer(mode, y * largeur + x, r, g, b);
+        _appliquer(mode, y * largeur + x, r, g, b, poids: opacite);
         n++;
       }
     }
