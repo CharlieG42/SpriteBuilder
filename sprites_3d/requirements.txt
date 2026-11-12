@@ -10,3 +10,7 @@ trimesh==4.0.5
 huggingface-hub<1.0
 imageio
 PyMCubes==0.1.6
+# Post-traitement du maillage (sprites_3d/postraitement.py)
+scipy
+fast-simplification
+xatlas==0.0.9

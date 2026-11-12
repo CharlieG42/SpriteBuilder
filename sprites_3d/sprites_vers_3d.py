@@ -10,10 +10,14 @@ Entrées acceptées (fichiers ou dossiers, parcourus récursivement) :
 Les images strictement identiques (un héros est copié dans `players/` et dans
 `nations/heros/`) ne sont converties qu'une fois.
 
-Sorties, dans le dossier `--sorties` :
-  - `<nom>.glb`                 : le modèle 3D (couleurs portées par les sommets) ;
-  - `preparees/<nom>.png`       : l'image réellement donnée au modèle (diagnostic) ;
-  - `resume.md`                 : le tableau récapitulatif.
+Sorties, dans le dossier `--sorties`, un sous-dossier par sprite :
+  - `<nom>/<nom>.glb`             modèle texturé, léger (Godot, Blender…) ;
+  - `<nom>/<nom>.fbx`             FBX avec texture intégrée ;
+  - `<nom>/<nom>_mixamo_obj.zip`  OBJ + MTL + PNG, à déposer tel quel sur Mixamo ;
+  - `<nom>/<nom>_texture.png`     la texture seule ;
+  - `preparees/<nom>.png`         l'image réellement donnée au modèle (diagnostic) ;
+  - `resume.md`                   le tableau récapitulatif.
+Le personnage regarde vers +Z, pieds sur y = 0, 1,8 m de haut.
 
 Exemple :
     python sprites_vers_3d.py sprites_3d/entrees --sorties sorties_3d \
@@ -28,6 +32,7 @@ import io
 import os
 import sys
 import time
+import traceback
 import types
 import zipfile
 from dataclasses import dataclass
@@ -35,6 +40,9 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import postraitement  # noqa: E402
 
 EXTENSIONS_IMAGE = {".png", ".webp"}
 # Gris neutre attendu par TripoSR derrière le sujet.
@@ -131,26 +139,85 @@ class ImageNonDetouree(ValueError):
     pass
 
 
-def preparer(octets: bytes, marge: float = 0.85, seuil_alpha: int = 8) -> Image.Image:
-    """Recadre le sprite, le centre dans un carré et le pose sur fond gris.
+def _disque(rayon: int) -> np.ndarray:
+    y, x = np.ogrid[-rayon: rayon + 1, -rayon: rayon + 1]
+    return x * x + y * y <= rayon * rayon
 
-    `marge` : part du carré occupée par le sprite (0.5 à 1.0). La démo
-    Hugging Face appelle ce réglage « Foreground Ratio ».
+
+def nettoyer_sprite(rgba: np.ndarray, rayon: int = 8, seuil_blanc: int = 215,
+                    trou_max: int = 2500) -> np.ndarray:
+    """Répare les défauts de détourage qui gênent TripoSR.
+
+    Le détourage laisse (1) un liseré blanc opaque le long des bords et (2) de
+    fines fentes transparentes autour des poches, ceintures et plis, que le
+    modèle prend pour du vide. On retire le blanc relié à la transparence, puis
+    on comble les fentes de moins de 2 x `rayon` pixels et les petits trous
+    enfermés, avec la moyenne pondérée des couleurs voisines.
+    """
+    from scipy import ndimage as ndi
+
+    a = rgba.copy()
+    opaque = a[..., 3] > 8
+    # 1. liseré blanc : pixels très clairs reliés, par du clair, à la transparence
+    blanc = opaque & (a[..., :3].min(axis=2) >= seuil_blanc)
+    etiquettes, _ = ndi.label(~opaque | blanc)
+    touche = np.unique(etiquettes[~opaque])
+    a[np.isin(etiquettes, touche[touche > 0]) & blanc, 3] = 0
+    # un dernier pixel clair en bordure
+    opaque = a[..., 3] > 8
+    a[opaque & (a[..., :3].min(axis=2) >= 190)
+      & ndi.binary_dilation(~opaque, iterations=2), 3] = 0
+    opaque = a[..., 3] > 8
+
+    # 2. fentes (fermeture morphologique) + petits trous enfermés
+    p = rayon + 2
+    ferme = ndi.binary_closing(np.pad(opaque, p), structure=_disque(rayon))[p:-p, p:-p]
+    a_combler = ferme & ~opaque
+    etiquettes, n = ndi.label(~opaque)
+    if n:
+        bord = set(np.unique(np.r_[etiquettes[0], etiquettes[-1],
+                                   etiquettes[:, 0], etiquettes[:, -1]]))
+        aires = ndi.sum(np.ones_like(etiquettes), etiquettes, index=np.arange(1, n + 1))
+        petits = [i + 1 for i in range(n) if (i + 1) not in bord and aires[i] <= trou_max]
+        if petits:
+            a_combler |= np.isin(etiquettes, petits)
+    if a_combler.any():
+        masque = opaque.astype(float)
+        sigma = max(2.0, rayon / 2)
+        poids = np.maximum(ndi.gaussian_filter(masque, sigma), 1e-6)
+        for c in range(3):
+            lisse = ndi.gaussian_filter(a[..., c].astype(float) * masque, sigma) / poids
+            a[..., c] = np.where(a_combler, lisse, a[..., c]).clip(0, 255).astype(np.uint8)
+        a[a_combler, 3] = 255
+    return a
+
+
+def preparer_avec_reference(octets: bytes, marge: float = 0.85, seuil_alpha: int = 8,
+                            nettoyer: bool = True):
+    """Prépare l'image pour TripoSR. Retourne (image, pixels RGB opaques du sprite).
+
+    Le sprite est nettoyé, recadré, centré dans un carré et posé sur fond gris.
+    `marge` : part du carré occupée par le sprite (0.3 à 1.0), le « Foreground
+    Ratio » de la démo Hugging Face. Les pixels opaques servent ensuite de
+    référence pour recaler les couleurs du modèle.
     """
     if not 0.3 <= marge <= 1.0:
         raise ValueError("--marge doit être entre 0.3 et 1.0")
     image = Image.open(io.BytesIO(octets))
     image.load()
     rgba = np.array(image.convert("RGBA"))
-    alpha = rgba[..., 3]
-    if alpha.min() == 255:
+    if rgba[..., 3].min() == 255:
         raise ImageNonDetouree(
             "pas de transparence : détoure d'abord l'image dans Atelier Sprites"
         )
+    if nettoyer:
+        rgba = nettoyer_sprite(rgba)
+    alpha = rgba[..., 3]
     ys, xs = np.where(alpha > seuil_alpha)
     if ys.size == 0:
         raise ValueError("image entièrement transparente")
     sujet = rgba[ys.min(): ys.max() + 1, xs.min(): xs.max() + 1]
+    reference = sujet[sujet[..., 3] > seuil_alpha][:, :3]
 
     h, w = sujet.shape[:2]
     cote = max(h, w)
@@ -163,7 +230,12 @@ def preparer(octets: bytes, marge: float = 0.85, seuil_alpha: int = 8) -> Image.
     flottant = carre.astype(np.float32) / 255.0
     a = flottant[..., 3:4]
     rgb = flottant[..., :3] * a + (1.0 - a) * FOND_GRIS
-    return Image.fromarray((rgb * 255.0 + 0.5).astype(np.uint8))
+    return Image.fromarray((rgb * 255.0 + 0.5).astype(np.uint8)), reference
+
+
+def preparer(octets: bytes, marge: float = 0.85, seuil_alpha: int = 8,
+             nettoyer: bool = True) -> Image.Image:
+    return preparer_avec_reference(octets, marge, seuil_alpha, nettoyer)[0]
 
 
 # --------------------------------------------------------------------------
@@ -224,10 +296,10 @@ def charger_modele(dossier_triposr: Path | None, modele: str, taille_lot: int):
     return modele_tsr
 
 
-def generer_glb(modele_tsr, image: Image.Image, destination: Path,
-                resolution: int, seuil_densite: float) -> str:
-    """Génère le maillage et l'écrit en GLB. Retourne un court descriptif."""
+def generer_maillage(modele_tsr, image: Image.Image, resolution: int, seuil_densite: float):
+    """Génère le maillage (couleurs de sommets), personnage face à +Z, axe Y vers le haut."""
     import torch
+    import trimesh
     from tsr.utils import to_gradio_3d_orientation
 
     with torch.no_grad():
@@ -237,10 +309,10 @@ def generer_glb(modele_tsr, image: Image.Image, destination: Path,
     )[0]
     if len(maillage.faces) == 0:
         raise RuntimeError("le modèle n'a produit aucune surface")
-    # Même orientation que la démo : axe Y vers le haut, comme attendu par glTF.
     maillage = to_gradio_3d_orientation(maillage)
-    maillage.export(str(destination))
-    return f"{len(maillage.vertices)} sommets, {len(maillage.faces)} faces"
+    # La démo orientée pour son visionneur regarde vers -Z ; glTF et Mixamo attendent +Z.
+    maillage.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [0, 1, 0]))
+    return maillage
 
 
 # --------------------------------------------------------------------------
@@ -269,7 +341,7 @@ def ecrire_resume(resultats: list[Resultat], dossier: Path) -> str:
 
 
 def lire_arguments(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Sprites détourés -> GLB (TripoSR, CPU)")
+    p = argparse.ArgumentParser(description="Sprites détourés -> modèles 3D GLB / FBX / OBJ (TripoSR, CPU)")
     p.add_argument("entrees", nargs="*", type=Path,
                    help="images, zips ou dossiers (défaut : sprites_3d/entrees)")
     p.add_argument("--liste", type=Path,
@@ -291,6 +363,19 @@ def lire_arguments(argv: list[str] | None = None) -> argparse.Namespace:
                    help="identifiant Hugging Face ou dossier local des poids")
     p.add_argument("--taille-lot", type=int, default=8192,
                    help="taille des lots d'évaluation (plus petit = moins de mémoire)")
+    p.add_argument("--faces", type=int, default=postraitement.Options.faces,
+                   help="triangles du modèle final (défaut 25000)")
+    p.add_argument("--texture", type=int, default=postraitement.Options.texture,
+                   help="côté de la texture en pixels (défaut 2048)")
+    p.add_argument("--brut", action="store_true",
+                   help="ne pas post-traiter : écrit seulement le maillage brut de TripoSR")
+    p.add_argument("--garder-brut", action="store_true",
+                   help="écrire aussi le maillage brut (<nom>_brut.glb)")
+    p.add_argument("--sans-fbx", action="store_true", help="ne pas écrire de FBX")
+    p.add_argument("--sans-nettoyage", action="store_true",
+                   help="ne pas réparer le détourage (liseré blanc, fentes) avant TripoSR")
+    p.add_argument("--sans-calage-couleurs", action="store_true",
+                   help="ne pas recaler saturation et luminosité sur celles du sprite")
     return p.parse_args(argv)
 
 
@@ -321,32 +406,58 @@ def main(argv: list[str] | None = None) -> int:
 
     # Préparation d'abord : une image non détourée est signalée sans charger le modèle.
     resultats: list[Resultat] = []
-    pretes: list[tuple[Entree, Image.Image]] = []
+    pretes: list[tuple[Entree, str, Image.Image, np.ndarray]] = []
+    noms_pris: set[str] = set()
     for e in entrees:
         try:
-            image = preparer(e.octets, args.marge)
-            image.save(dossier_preparees / f"{e.nom}.png")
-            pretes.append((e, image))
+            image, reference = preparer_avec_reference(
+                e.octets, args.marge, nettoyer=not args.sans_nettoyage)
+            nom = postraitement.nom_sur(e.nom)
+            base, n = nom, 1
+            while nom in noms_pris:  # deux noms différents peuvent donner le même nom sûr
+                n += 1
+                nom = f"{base}_{n}"
+            noms_pris.add(nom)
+            image.save(dossier_preparees / f"{nom}.png")
+            pretes.append((e, nom, image, reference))
         except Exception as erreur:  # noqa: BLE001 - une image ratée ne bloque pas les autres
             print(f"  ! {e.nom} : {erreur}")
             resultats.append(Resultat(e.nom, e.origine, False, str(erreur)))
 
+    options = postraitement.Options(faces=args.faces, texture=args.texture,
+                                    fbx=not args.sans_fbx)
     if pretes:
         debut = time.time()
         print("Chargement de TripoSR…")
         modele_tsr = charger_modele(args.triposr, args.modele, args.taille_lot)
         print(f"Modèle prêt en {time.time() - debut:.0f} s.")
-        for i, (e, image) in enumerate(pretes, 1):
+        for i, (e, nom, image, reference) in enumerate(pretes, 1):
             debut = time.time()
-            print(f"[{i}/{len(pretes)}] {e.nom}…", flush=True)
+            print(f"[{i}/{len(pretes)}] {nom}…", flush=True)
             try:
-                detail = generer_glb(modele_tsr, image, args.sorties / f"{e.nom}.glb",
-                                     args.resolution, args.seuil_densite)
-                resultats.append(Resultat(e.nom, e.origine, True, detail, time.time() - debut))
+                maillage = generer_maillage(modele_tsr, image, args.resolution,
+                                            args.seuil_densite)
+                dossier = args.sorties / nom
+                dossier.mkdir(parents=True, exist_ok=True)
+                if args.brut or args.garder_brut:
+                    maillage.export(str(dossier / f"{nom}_brut.glb"))
+                if args.brut:
+                    detail = (f"brut : {len(maillage.vertices)} sommets, "
+                              f"{len(maillage.faces)} faces")
+                else:
+                    res = postraitement.postraiter(
+                        maillage, nom, dossier, options,
+                        None if args.sans_calage_couleurs else reference)
+                    detail = f"{res.faces} faces ; {', '.join(res.fichiers)}"
+                    for a in res.avertissements:
+                        detail += f" ; ⚠ {a}"
+                        print(f"  ! {a}")
+                resultats.append(Resultat(nom, e.origine, True, detail, time.time() - debut))
                 print(f"    {detail} en {time.time() - debut:.0f} s")
             except Exception as erreur:  # noqa: BLE001
-                print(f"  ! {e.nom} : {erreur}")
-                resultats.append(Resultat(e.nom, e.origine, False, str(erreur),
+                traceback.print_exc()
+                print(f"  ! {nom} : {erreur}")
+                resultats.append(Resultat(nom, e.origine, False, str(erreur),
                                           time.time() - debut))
 
     print()
