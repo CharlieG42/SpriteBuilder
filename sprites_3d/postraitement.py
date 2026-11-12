@@ -197,7 +197,9 @@ def caler_couleurs(couleurs: np.ndarray, reference: np.ndarray,
 
 def cuire_texture(positions: np.ndarray, faces: np.ndarray, uvs: np.ndarray,
                   denses_pos: np.ndarray, denses_couleurs: np.ndarray,
-                  taille: int, reference: np.ndarray | None = None) -> Image.Image:
+                  taille: int, reference: np.ndarray | None = None,
+                  projection=None, normales: np.ndarray | None = None,
+                  image_base: Image.Image | None = None) -> Image.Image:
     """Peint la texture : chaque pixel prend la couleur du maillage dense voisin.
 
     Convention UV : origine en bas à gauche (v vers le haut), comme trimesh
@@ -225,15 +227,24 @@ def cuire_texture(positions: np.ndarray, faces: np.ndarray, uvs: np.ndarray,
     bary /= bary.sum(axis=1, keepdims=True)
     pos3d = (positions[tri] * bary[:, :, None]).sum(axis=1)
 
-    k = 4
-    dist, voisins = cKDTree(denses_pos).query(pos3d, k=k, workers=-1)
-    poids = 1.0 / (dist + 1e-6)
-    poids /= poids.sum(axis=1, keepdims=True)
-    couleurs = (denses_couleurs[voisins][:, :, :3].astype(np.float32)
-                * poids[:, :, None]).sum(axis=1)
+    if image_base is not None:
+        # re-texturage : on part des pixels de la texture existante
+        couleurs = np.asarray(image_base.convert("RGB"), dtype=np.float32)[ys, xs]
+    else:
+        k = 4
+        dist, voisins = cKDTree(denses_pos).query(pos3d, k=k, workers=-1)
+        poids = 1.0 / (dist + 1e-6)
+        poids /= poids.sum(axis=1, keepdims=True)
+        couleurs = (denses_couleurs[voisins][:, :, :3].astype(np.float32)
+                    * poids[:, :, None]).sum(axis=1)
 
-    if reference is not None and len(reference):
+    if reference is not None and len(reference) and image_base is None:
         couleurs = caler_couleurs(couleurs, reference)
+    if projection is not None and normales is not None:
+        from projection import appliquer
+        n = (normales[tri] * bary[:, :, None]).sum(axis=1)
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9)
+        couleurs = appliquer(projection, couleurs, pos3d, n, ids[ys, xs] - 1)
     image = np.zeros((taille, taille, 3), dtype=np.float32)
     image[ys, xs] = couleurs
     # Marge : les pixels hors des morceaux copient le pixel peint le plus proche,
@@ -295,7 +306,8 @@ def ecrire_fbx(glb: Path, fbx: Path, nom: str) -> str | None:
 # --------------------------------------------------------------------------
 
 def postraiter(maillage, nom: str, dossier: Path, opt: Options | None = None,
-               reference: np.ndarray | None = None) -> Resultat:
+               reference: np.ndarray | None = None,
+               sprite_rgba: np.ndarray | None = None) -> Resultat:
     """Maillage TripoSR (couleurs de sommets) -> fichiers prêts à l'emploi.
 
     `reference` : pixels RGB opaques (M, 3) du sprite d'origine, pour recaler les
@@ -334,7 +346,17 @@ def postraiter(maillage, nom: str, dossier: Path, opt: Options | None = None,
     n3 = normales_lisses[vmap]
     res.sommets, res.faces = len(s3), len(f3)
 
-    texture = cuire_texture(s3, f3, uvs, pos, couleurs, opt.texture, reference)
+    projection = None
+    if sprite_rgba is not None:
+        from projection import preparer_projection
+        projection = preparer_projection(s3, f3, sprite_rgba)
+        res.avertissements.append(
+            f"projection du sprite : recouvrement des silhouettes {projection.iou:.3f}")
+        if projection.iou < 0.85:
+            res.avertissements.append("recouvrement faible, projection ignorée")
+            projection = None
+    texture = cuire_texture(s3, f3, uvs, pos, couleurs, opt.texture, reference,
+                            projection, n3)
     chemin_tex = dossier / f"{nom}_texture.png"
     texture.save(chemin_tex)
     res.fichiers.append(chemin_tex.name)
@@ -363,6 +385,54 @@ def postraiter(maillage, nom: str, dossier: Path, opt: Options | None = None,
     return res
 
 
+def retexturer(maillage, nom: str, dossier: Path, opt: Options,
+               sprite_rgba: np.ndarray) -> Resultat:
+    """Maillage déjà texturé (GLB produit par ce pipeline) + sprite : repeint l'avant.
+
+    La géométrie et les UV sont gardés tels quels ; seule la texture change.
+    """
+    import trimesh
+    from projection import preparer_projection
+    from trimesh.visual.material import PBRMaterial
+    from trimesh.visual.texture import TextureVisuals
+
+    nom = nom_sur(nom)
+    dossier.mkdir(parents=True, exist_ok=True)
+    res = Resultat()
+    s3 = np.asarray(maillage.vertices, dtype=np.float32)
+    f3 = np.asarray(maillage.faces)
+    uvs = np.asarray(maillage.visual.uv, dtype=np.float64)
+    n3 = np.asarray(maillage.vertex_normals, dtype=np.float32)
+    base = maillage.visual.material.baseColorTexture
+    taille = base.size[0]
+    proj = preparer_projection(s3, f3, sprite_rgba)
+    res.avertissements.append(
+        f"projection du sprite : recouvrement des silhouettes {proj.iou:.3f}")
+    if proj.iou < 0.85:
+        res.avertissements.append("recouvrement faible, projection ignorée")
+        proj = None
+    texture = cuire_texture(s3, f3, uvs, None, None, taille, None, proj, n3, image_base=base)
+    res.sommets, res.faces = len(s3), len(f3)
+    chemin_tex = dossier / f"{nom}_texture.png"
+    texture.save(chemin_tex)
+    res.fichiers.append(chemin_tex.name)
+    final = trimesh.Trimesh(
+        vertices=s3, faces=f3, vertex_normals=n3, process=False,
+        visual=TextureVisuals(uv=uvs, material=PBRMaterial(
+            baseColorTexture=texture, metallicFactor=0.0, roughnessFactor=1.0)))
+    chemin_glb = dossier / f"{nom}.glb"
+    final.export(str(chemin_glb))
+    res.fichiers.append(chemin_glb.name)
+    res.fichiers.append(ecrire_obj_zip(dossier, nom, s3, n3, uvs, f3, texture).name)
+    if opt.fbx:
+        erreur = ecrire_fbx(chemin_glb, dossier / f"{nom}.fbx", nom)
+        if erreur:
+            res.avertissements.append(erreur)
+        else:
+            res.fichiers.append(f"{nom}.fbx")
+    return res
+
+
 def lire_arguments(argv=None):
     p = argparse.ArgumentParser(description="Post-traitement d'un maillage TripoSR")
     p.add_argument("entree", type=Path, nargs="?", help="GLB / OBJ / PLY avec couleurs de sommets")
@@ -374,6 +444,8 @@ def lire_arguments(argv=None):
                    help="rotation autour de Y en degrés (180 pour un modèle qui regarde vers -Z)")
     p.add_argument("--palette", type=Path,
                    help="sprite PNG détouré d'origine : recale les couleurs du modèle sur les siennes")
+    p.add_argument("--sprite", type=Path,
+                   help="sprite PNG détouré d'origine, plaqué net sur la face avant")
     p.add_argument("--sans-fbx", action="store_true")
     return p.parse_args(argv)
 
@@ -389,12 +461,26 @@ def main(argv=None) -> int:
     maillage = charge.dump(concatenate=True) if hasattr(charge, "dump") else charge
     opt = Options(faces=args.faces, texture=args.texture, lissage=args.lissage,
                   fbx=not args.sans_fbx, tourner=args.tourner)
+    if maillage.visual.kind == "texture":
+        if args.sprite is None:
+            print("Ce modèle est déjà texturé : donne le sprite avec --sprite.")
+            return 2
+        sprite = np.array(Image.open(args.sprite).convert("RGBA"))
+        res = retexturer(maillage, args.entree.stem,
+                         args.sorties / nom_sur(args.entree.stem), opt, sprite)
+        print(f"{res.sommets} sommets, {res.faces} faces ; fichiers : {', '.join(res.fichiers)}")
+        for a in res.avertissements:
+            print(f"  ! {a}")
+        return 0
     reference = None
     if args.palette:
         rgba = np.array(Image.open(args.palette).convert("RGBA"))
         reference = rgba[rgba[..., 3] > 8][:, :3]
+    sprite = np.array(Image.open(args.sprite).convert("RGBA")) if args.sprite else None
+    if sprite is not None and reference is None:
+        reference = sprite[sprite[..., 3] > 8][:, :3]
     res = postraiter(maillage, args.entree.stem, args.sorties / nom_sur(args.entree.stem), opt,
-                     reference)
+                     reference, sprite)
     print(f"{res.sommets} sommets, {res.faces} faces ; fichiers : {', '.join(res.fichiers)}")
     for a in res.avertissements:
         print(f"  ! {a}")

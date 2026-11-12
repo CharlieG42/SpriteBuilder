@@ -63,6 +63,10 @@ l'auto-rigger.
    lue sur le maillage dense : le détail est conservé.
 4. **Recalage des couleurs** : TripoSR sort des couleurs ternes. Saturation et
    luminosité sont ramenées à celles du sprite, sans toucher aux teintes.
+5. **Sprite plaqué sur la face avant** : la caméra est retrouvée en superposant
+   le modèle au sprite, puis les pixels nets du sprite (visage, ceinture, poches)
+   sont peints sur toutes les surfaces vues de face, avec un fondu vers les côtés.
+   Le dos et les flancs gardent la couleur devinée par TripoSR.
 
 ## Limites
 
@@ -94,7 +98,7 @@ python -m unittest sprites_3d/test_sprites_vers_3d.py
 ```
 
 Options utiles : `--faces 40000`, `--texture 4096`, `--sans-fbx`, `--brut` (maillage
-brut seulement), `--sans-nettoyage`, `--sans-calage-couleurs`. Le FBX demande Blender
+brut seulement), `--sans-nettoyage`, `--sans-calage-couleurs`, `--sans-projection`. Le FBX demande Blender
 (`pip install bpy` dans un environnement à part, désigné par la variable
 `PYTHON_BLENDER`) ; sans lui, les autres formats sont produits normalement.
 
@@ -106,6 +110,9 @@ Pour un modèle venu de la démo Hugging Face, dont le personnage regarde vers -
 python sprites_3d/postraitement.py Zimut.glb --sorties sorties_3d --tourner 180 \
     --palette sprites_3d/entrees/Zimut.png
 ```
+
+Pour repeindre un GLB déjà généré avec un sprite plus propre, sans relancer TripoSR :
+`python postraitement.py Zimut.glb --sprite Zimut.png`.
 
 ## Détails techniques
 

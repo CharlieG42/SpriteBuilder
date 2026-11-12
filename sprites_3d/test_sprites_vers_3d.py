@@ -186,6 +186,28 @@ class TestPostraitement(unittest.TestCase):
         self.assertEqual(len(garde.faces), len(grand.faces))
 
 
+class TestProjection(unittest.TestCase):
+    def test_sprite_plaque_sur_la_face_avant(self):
+        import trimesh
+        m = trimesh.creation.icosphere(subdivisions=4)
+        m.apply_scale([0.4, 1.0, 0.3])
+        m.visual.vertex_colors = np.tile(np.array([200, 30, 30, 255], np.uint8), (len(m.vertices), 1))
+        h, w = 400, 200
+        yy, xx = np.mgrid[0:h, 0:w]
+        ellipse = ((xx - 100) / 80.0) ** 2 + ((yy - 200) / 190.0) ** 2 <= 1
+        sprite = np.zeros((h, w, 4), np.uint8)
+        sprite[ellipse] = (30, 30, 220, 255)
+        with tempfile.TemporaryDirectory() as d:
+            res = pp.postraiter(m, "x", Path(d), pp.Options(faces=700, texture=256, fbx=False),
+                                None, sprite)
+            tex = np.asarray(Image.open(Path(d) / "x_texture.png").convert("RGB")).astype(int)
+        self.assertTrue(any("projection" in a for a in res.avertissements))
+        bleus = ((tex[..., 2] > tex[..., 0] + 80)).mean()
+        rouges = ((tex[..., 0] > tex[..., 2] + 80)).mean()
+        self.assertGreater(bleus, 0.15)      # la face avant prend le sprite
+        self.assertGreater(rouges, 0.15)     # le dos garde la couleur du modèle
+
+
 class TestFbx(unittest.TestCase):
     def test_fbx_si_blender_disponible(self):
         interp = pp.interpreteur_blender()
