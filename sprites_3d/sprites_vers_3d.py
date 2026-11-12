@@ -233,6 +233,17 @@ def preparer_avec_reference(octets: bytes, marge: float = 0.85, seuil_alpha: int
     return Image.fromarray((rgb * 255.0 + 0.5).astype(np.uint8)), reference
 
 
+def sprite_nettoye(octets: bytes, seuil_alpha: int = 8, nettoyer: bool = True) -> np.ndarray:
+    """Sprite RGBA nettoyé et recadré, pour être plaqué sur la face avant."""
+    image = Image.open(io.BytesIO(octets))
+    image.load()
+    rgba = np.array(image.convert("RGBA"))
+    if nettoyer:
+        rgba = nettoyer_sprite(rgba)
+    ys, xs = np.where(rgba[..., 3] > seuil_alpha)
+    return rgba[ys.min(): ys.max() + 1, xs.min(): xs.max() + 1]
+
+
 def preparer(octets: bytes, marge: float = 0.85, seuil_alpha: int = 8,
              nettoyer: bool = True) -> Image.Image:
     return preparer_avec_reference(octets, marge, seuil_alpha, nettoyer)[0]
@@ -374,6 +385,8 @@ def lire_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--sans-fbx", action="store_true", help="ne pas écrire de FBX")
     p.add_argument("--sans-nettoyage", action="store_true",
                    help="ne pas réparer le détourage (liseré blanc, fentes) avant TripoSR")
+    p.add_argument("--sans-projection", action="store_true",
+                   help="ne pas plaquer le sprite net sur la face avant du modèle")
     p.add_argument("--sans-calage-couleurs", action="store_true",
                    help="ne pas recaler saturation et luminosité sur celles du sprite")
     return p.parse_args(argv)
@@ -445,9 +458,11 @@ def main(argv: list[str] | None = None) -> int:
                     detail = (f"brut : {len(maillage.vertices)} sommets, "
                               f"{len(maillage.faces)} faces")
                 else:
+                    sprite = None if args.sans_projection else sprite_nettoye(
+                        e.octets, nettoyer=not args.sans_nettoyage)
                     res = postraitement.postraiter(
                         maillage, nom, dossier, options,
-                        None if args.sans_calage_couleurs else reference)
+                        None if args.sans_calage_couleurs else reference, sprite)
                     detail = f"{res.faces} faces ; {', '.join(res.fichiers)}"
                     for a in res.avertissements:
                         detail += f" ; ⚠ {a}"

@@ -16,3 +16,4 @@ key.properties
 
 # Sorties locales de sprites_3d/sprites_vers_3d.py
 sorties_3d/
+__pycache__/
