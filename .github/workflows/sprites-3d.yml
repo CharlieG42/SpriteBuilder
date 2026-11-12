@@ -1,0 +1,144 @@
+name: Sprites vers 3D (TripoSR)
+
+# Convertit les sprites détourés déposés dans sprites_3d/entrees/ en modèles
+# GLB, avec TripoSR sur CPU. Voir sprites_3d/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      filtre:
+        description: "Sprites à traiter (ex. assassin* ; * = tous)"
+        default: "*"
+      resolution:
+        description: "Finesse du maillage"
+        type: choice
+        options: ["128", "192", "256", "320"]
+        default: "256"
+      marge:
+        description: "Part du cadre occupée par le sprite (0.5 à 1.0)"
+        default: "0.85"
+  push:
+    branches: [ main ]
+    paths:
+      - 'sprites_3d/entrees/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sprites-3d
+  cancel-in-progress: false
+
+env:
+  # Versions figées : mêmes résultats d'une exécution à l'autre.
+  TRIPOSR_COMMIT: 107cefdc244c39106fa830359024f6a2f1c78871
+  TORCH_VERSION: 2.6.0
+
+jobs:
+  convertir:
+    name: Sprites -> GLB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Lister les sprites à convertir
+        id: liste
+        env:
+          EVENEMENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          # Dépôt de fichiers : seulement ceux ajoutés ou modifiés par ce push.
+          # Lancement manuel (ou historique indisponible) : tout le dossier.
+          if [ "$EVENEMENT" = "push" ] && git rev-parse -q --verify HEAD~1 >/dev/null; then
+            git -c core.quotepath=off diff --name-only --diff-filter=AMR HEAD~1 HEAD \
+              -- sprites_3d/entrees > tous.txt
+          else
+            find sprites_3d/entrees -type f | sort > tous.txt
+          fi
+          grep -iE '\.(png|webp|zip)$' tous.txt > liste_3d.txt || true
+          echo "nombre=$(wc -l < liste_3d.txt)" >> "$GITHUB_OUTPUT"
+          echo "Fichiers retenus :"; cat liste_3d.txt
+          if [ ! -s liste_3d.txt ]; then
+            echo "Aucun sprite ajouté ou modifié : rien à convertir." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Python
+        if: steps.liste.outputs.nombre != '0'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: sprites_3d/requirements.txt
+
+      - name: Installer PyTorch (CPU) et les dépendances
+        if: steps.liste.outputs.nombre != '0'
+        run: |
+          python -m pip install --upgrade pip
+          pip install "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cpu
+          pip install -r sprites_3d/requirements.txt
+
+      - name: Récupérer TripoSR
+        if: steps.liste.outputs.nombre != '0'
+        run: |
+          mkdir -p "$RUNNER_TEMP/TripoSR"
+          cd "$RUNNER_TEMP/TripoSR"
+          git init -q
+          git remote add origin https://github.com/VAST-AI-Research/TripoSR.git
+          git fetch -q --depth 1 origin "$TRIPOSR_COMMIT"
+          git checkout -q FETCH_HEAD
+
+      - name: Tests du script
+        if: steps.liste.outputs.nombre != '0'
+        run: python -m unittest sprites_3d/test_sprites_vers_3d.py
+
+      - name: Restaurer les poids du modèle (cache)
+        if: steps.liste.outputs.nombre != '0'
+        id: poids
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/huggingface
+          key: triposr-poids-v1
+
+      - name: Convertir les sprites
+        if: steps.liste.outputs.nombre != '0'
+        env:
+          FILTRE: ${{ inputs.filtre || '*' }}
+          RESOLUTION: ${{ inputs.resolution || '256' }}
+          MARGE: ${{ inputs.marge || '0.85' }}
+        run: |
+          python sprites_3d/sprites_vers_3d.py \
+            --liste liste_3d.txt \
+            --sorties sorties_3d \
+            --triposr "$RUNNER_TEMP/TripoSR" \
+            --filtre "$FILTRE" \
+            --resolution "$RESOLUTION" \
+            --marge "$MARGE"
+
+      - name: Vérifier que les poids ont été téléchargés
+        if: always() && steps.liste.outputs.nombre != '0' && steps.poids.outputs.cache-hit != 'true'
+        id: telecharges
+        run: |
+          if find ~/.cache/huggingface -name 'model.ckpt' 2>/dev/null | grep -q .; then
+            echo "oui=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enregistrer les poids du modèle (cache)
+        if: always() && steps.telecharges.outputs.oui == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/huggingface
+          key: triposr-poids-v1
+
+      - name: Publier les modèles 3D
+        if: always() && steps.liste.outputs.nombre != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprites-3d-${{ github.run_number }}
+          path: sorties_3d/
+          if-no-files-found: warn
+          retention-days: 7

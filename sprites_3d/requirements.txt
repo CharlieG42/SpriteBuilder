@@ -1,0 +1,12 @@
+# Dépendances de sprites_vers_3d.py (TripoSR sur CPU).
+# torch et torchmcubes sont installés à part par le workflow : torch vient de
+# l'index CPU de PyTorch, et torchmcubes se compile contre ce torch-là.
+numpy<2
+omegaconf==2.3.0
+Pillow==10.1.0
+einops==0.7.0
+transformers==4.35.0
+trimesh==4.0.5
+huggingface-hub<1.0
+imageio
+PyMCubes==0.1.6

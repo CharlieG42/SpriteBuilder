@@ -4,8 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+    # Déposer des sprites pour la 3D ne reconstruit pas l'APK.
+    paths-ignore:
+      - 'sprites_3d/**'
+      - '.github/workflows/sprites-3d.yml'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - 'sprites_3d/**'
+      - '.github/workflows/sprites-3d.yml'
 
 permissions:
   contents: read

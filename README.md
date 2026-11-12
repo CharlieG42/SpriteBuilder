@@ -9,6 +9,7 @@ import → détourage → découpe → nommage des poses → export zip.
 
 - `atelier_sprites/` — le code Dart de l'atelier (la coque Android est générée par `flutter create`, voir `atelier_sprites/README.md`)
 - `.github/workflows/build-apk.yml` — workflow GitHub Actions qui génère le scaffolding Android, lance les tests et construit l'APK debug, publié en artifact.
+- `sprites_3d/` — conversion des sprites détourés en modèles 3D (`.glb`) avec TripoSR, via le workflow `.github/workflows/sprites-3d.yml` (voir `sprites_3d/README.md`).
 
 ## APK
 

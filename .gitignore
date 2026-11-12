@@ -13,3 +13,6 @@ atelier_sprites/test/widget_test.dart
 *.jks
 *.keystore
 key.properties
+
+# Sorties locales de sprites_3d/sprites_vers_3d.py
+sorties_3d/
