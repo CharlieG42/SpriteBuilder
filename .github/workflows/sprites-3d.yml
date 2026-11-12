@@ -1,7 +1,7 @@
 name: Sprites vers 3D (TripoSR)
 
-# Convertit les sprites détourés déposés dans sprites_3d/entrees/ en modèles
-# GLB, avec TripoSR sur CPU. Voir sprites_3d/README.md.
+# Convertit les sprites détourés déposés dans sprites_3d/entrees/ en modèles 3D
+# (GLB, FBX, OBJ pour Mixamo), avec TripoSR sur CPU. Voir sprites_3d/README.md.
 
 on:
   workflow_dispatch:
@@ -17,6 +17,10 @@ on:
       marge:
         description: "Part du cadre occupée par le sprite (0.5 à 1.0)"
         default: "0.85"
+      nettoyage_sprite:
+        description: "Réparer le détourage (liseré blanc, fentes) avant TripoSR. Décocher pour comparer."
+        type: boolean
+        default: true
   push:
     branches: [ main ]
     paths:
@@ -82,6 +86,20 @@ jobs:
           pip install "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cpu
           pip install -r sprites_3d/requirements.txt
 
+      - name: Installer Blender (module bpy, pour l'export FBX)
+        if: steps.liste.outputs.nombre != '0'
+        # Non bloquant : sans Blender, les autres formats sont produits et le FBX est signalé manquant.
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libxi6 libxkbcommon0 libxxf86vm1 libxfixes3 libxrender1 libgl1 libsm6
+          # Environnement à part : bpy impose ses propres versions (numpy, etc.).
+          python -m venv "$RUNNER_TEMP/blender-venv"
+          "$RUNNER_TEMP/blender-venv/bin/pip" install --quiet bpy
+          "$RUNNER_TEMP/blender-venv/bin/python" -c "import bpy; print('Blender', bpy.app.version_string)"
+          echo "PYTHON_BLENDER=$RUNNER_TEMP/blender-venv/bin/python" >> "$GITHUB_ENV"
+
       - name: Récupérer TripoSR
         if: steps.liste.outputs.nombre != '0'
         run: |
@@ -110,14 +128,19 @@ jobs:
           FILTRE: ${{ inputs.filtre || '*' }}
           RESOLUTION: ${{ inputs.resolution || '256' }}
           MARGE: ${{ inputs.marge || '0.85' }}
+          NETTOYAGE: ${{ inputs.nettoyage_sprite }}
         run: |
+          options=()
+          # Vide (dépôt de fichiers) ou « true » : réparation active. Seul « false » la coupe.
+          if [ "$NETTOYAGE" = "false" ]; then options+=(--sans-nettoyage); fi
           python sprites_3d/sprites_vers_3d.py \
             --liste liste_3d.txt \
             --sorties sorties_3d \
             --triposr "$RUNNER_TEMP/TripoSR" \
             --filtre "$FILTRE" \
             --resolution "$RESOLUTION" \
-            --marge "$MARGE"
+            --marge "$MARGE" \
+            "${options[@]}"
 
       - name: Vérifier que les poids ont été téléchargés
         if: always() && steps.liste.outputs.nombre != '0' && steps.poids.outputs.cache-hit != 'true'
