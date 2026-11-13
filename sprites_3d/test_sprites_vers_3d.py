@@ -208,6 +208,30 @@ class TestProjection(unittest.TestCase):
         self.assertGreater(rouges, 0.15)     # le dos garde la couleur du modèle
 
 
+class TestSilhouettes(unittest.TestCase):
+    def test_face_et_dos_donnent_un_modele(self):
+        import silhouettes as sil
+        import trimesh
+        h, w = 300, 160
+        yy, xx = np.mgrid[0:h, 0:w]
+        ellipse = ((xx - 80) / 70.0) ** 2 + ((yy - 150) / 145.0) ** 2 <= 1
+        face = np.zeros((h, w, 4), np.uint8)
+        face[ellipse] = (30, 30, 220, 255)
+        dos = np.zeros((h, w, 4), np.uint8)
+        dos[ellipse] = (220, 30, 30, 255)
+        with tempfile.TemporaryDirectory() as d:
+            res = sil.construire(sil.charger_tableau(face), sil.charger_tableau(dos), "x", Path(d),
+                                 pp.Options(faces=1500, texture=256, fbx=False), grille=120)
+            m = trimesh.load(Path(d) / "x.glb", force="mesh")
+            tex = np.asarray(Image.open(Path(d) / "x_texture.png").convert("RGB")).astype(int)
+        self.assertIn("x_mixamo_obj.zip", res.fichiers)
+        self.assertAlmostEqual(m.bounds[1][1] - m.bounds[0][1], 1.8, places=2)
+        self.assertAlmostEqual(m.bounds[0][1], 0.0, places=3)
+        self.assertGreater(m.bounds[1][2], 0.05)                 # il y a du volume
+        self.assertGreater((tex[..., 2] > tex[..., 0] + 80).mean(), 0.1)   # face bleue
+        self.assertGreater((tex[..., 0] > tex[..., 2] + 80).mean(), 0.1)   # dos rouge
+
+
 class TestFbx(unittest.TestCase):
     def test_fbx_si_blender_disponible(self):
         interp = pp.interpreteur_blender()
