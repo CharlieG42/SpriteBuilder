@@ -230,6 +230,8 @@ def cuire_texture(positions: np.ndarray, faces: np.ndarray, uvs: np.ndarray,
     if image_base is not None:
         # re-texturage : on part des pixels de la texture existante
         couleurs = np.asarray(image_base.convert("RGB"), dtype=np.float32)[ys, xs]
+    elif denses_pos is None:
+        couleurs = np.zeros((len(pos3d), 3), dtype=np.float32)
     else:
         k = 4
         dist, voisins = cKDTree(denses_pos).query(pos3d, k=k, workers=-1)
@@ -241,10 +243,13 @@ def cuire_texture(positions: np.ndarray, faces: np.ndarray, uvs: np.ndarray,
     if reference is not None and len(reference) and image_base is None:
         couleurs = caler_couleurs(couleurs, reference)
     if projection is not None and normales is not None:
-        from projection import appliquer
         n = (normales[tri] * bary[:, :, None]).sum(axis=1)
         n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9)
-        couleurs = appliquer(projection, couleurs, pos3d, n, ids[ys, xs] - 1)
+        if hasattr(projection, "peindre"):
+            couleurs = projection.peindre(pos3d, n)
+        else:
+            from projection import appliquer
+            couleurs = appliquer(projection, couleurs, pos3d, n, ids[ys, xs] - 1)
     image = np.zeros((taille, taille, 3), dtype=np.float32)
     image[ys, xs] = couleurs
     # Marge : les pixels hors des morceaux copient le pixel peint le plus proche,

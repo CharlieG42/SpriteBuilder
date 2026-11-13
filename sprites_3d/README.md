@@ -114,6 +114,18 @@ python sprites_3d/postraitement.py Zimut.glb --sorties sorties_3d --tourner 180 
 Pour repeindre un GLB déjà généré avec un sprite plus propre, sans relancer TripoSR :
 `python postraitement.py Zimut.glb --sprite Zimut.png`.
 
+## Sans IA : modèle construit à partir des dessins
+
+`silhouettes.py` n'utilise pas TripoSR : il gonfle la silhouette de face en volume
+(bras en cylindres, tête en boule) puis plaque le dessin de face sur l'avant et le
+dessin de dos sur l'arrière. Quelques secondes sur processeur.
+
+    python silhouettes.py Zimut.png --dos Zimut_dos.png --sorties sorties_3d
+
+Sans `--dos`, la face est reprise à l'arrière. `--epaisseur` (0.8) et `--plafond`
+(0.18 m) règlent le volume. Les dessins doivent avoir la même pose et les mêmes
+proportions. Les sorties sont les mêmes : GLB, FBX, zip OBJ pour Mixamo.
+
 ## Détails techniques
 
 - `sprites_vers_3d.py` répare, recadre et centre chaque sprite dans un carré sur

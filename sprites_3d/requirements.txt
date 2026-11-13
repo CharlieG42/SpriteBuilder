@@ -14,3 +14,4 @@ PyMCubes==0.1.6
 scipy
 fast-simplification
 xatlas==0.0.9
+scikit-image
